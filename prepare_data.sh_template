@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Example scripts illustrating how to use bash to copy data from resfilsp10
+# to the /input directory for your unit of knowledge. Always include the
+# following line so that bash indicates a failure if a copy command fails:
+
+set -e
+
+
+# The simplest way is to use copy rules. Copying with rsync should be preferred
+# since it will skip already copied files. Example on how to copy and directory
+# from //resfilsp10/imaging:
+
+rsync -rv --size-only \
+    "${shares_resfilsp10_imaging}/groupname/archives/motherarchive" \
+    "$1/motherarchive"
+    
+# This will copy an entire motherarchive to /input/motherarchive. Already
+# copied files will be skipped if the size remains equal.

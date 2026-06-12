@@ -1,0 +1,43 @@
+# Example prepare_data file based on python3.6. All .py prepare_data scripts
+# are executed using python3.6. Except for the core-libraries of python only
+# the extra library `datatk` is available.
+
+# To simply copy a directory to the /input directory, while skipping copying if
+# the directory already exists, you could, for example, use the following code:
+
+import os
+import sys
+import shutil
+
+def copy_if_not_exists(src, target_path):
+    target_path = os.path.join(target_path, os.path.basename(src))
+    if not os.path.exists(target_path):
+        shutil.copytree(src, target_path)
+
+copy_if_not_exists(
+    f'{os.environ["shares_resfilsp10_imaging"]}/chestct/archives/motherarchive', 
+    os.path.join(sys.argv[1], "scans"))
+
+# This will copy an entire motherarchive the data from resfilsp10 to a the 
+# /input directory of a unit of knowledge.
+
+
+# If you want/need to use datatk to copy your data, the following code will
+# work as well on the copy-image.
+
+import datatk
+
+src_archive = datatk.Archive(
+    f'{os.environ["shares_resfilsp10_imaging"]}/chestct/archives/motherarchive')
+    
+new_archive = datatk.Archive("/input/archive", 1) 
+    # option 1 makes datatk create a new archive if it does not exist
+
+some_series = src_archive.getSeriess()[0]
+some_dicom_file = os.path.join(
+    some_series.getDICOMDirectory(), 
+    some_series.getDICOMFiles()[0])
+
+new_archive.importFile(some_dicom_file)
+
+new_archive.save()
