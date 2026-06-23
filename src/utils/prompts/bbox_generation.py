@@ -24,23 +24,21 @@ def generate_bbox_prompts(
         A tuple of bounding box coordinates in the format ((x_min, x_max), (y_min, y_max), (z, z+1)).
 
     Raises:
-        ValueError: If the foreground mask is not a NumPy array.
-        ValueError: If the foreground mask is not 3-dimensional.
-        ValueError: If the foreground mask is not binary.
+        ValueError: If the positive mask is not a NumPy array.
+        ValueError: If the positive mask is not 3-dimensional.
+        ValueError: If the positive mask is not binary.
         ValueError: If the number of bounding boxes to generate is not positive.
-        ValueError: If the foreground mask contains no foreground voxels.
+        ValueError: If the positive mask contains no foreground voxels.
     """
     # Input mask validation
     if not isinstance(pos_mask, np.ndarray):
-        raise ValueError("Foreground mask must be a numpy array.")
+        raise ValueError("Positive mask must be a numpy array.")
     if pos_mask.ndim != 3:
-        raise ValueError("Foreground mask must be a 3D array.")
-
-    is_binary = (pos_mask.dtype == bool) or (pos_mask.max() <= 1 and pos_mask.min() >= 0)
-    if not is_binary:
-        raise ValueError("Foreground mask must be binary (values 0/1 or bool).")
+        raise ValueError("Positive mask must be a 3D array.")
+    if not pos_mask.dtype == bool:
+        raise ValueError("Positive mask must be binary (values 0/1 or bool).")
     if not np.any(pos_mask):
-        raise ValueError("Foreground mask contains no foreground voxels to generate prompts from.")
+        raise ValueError("Positive mask contains no foreground voxels to generate prompts from.")
 
     # Parameters validation
     if num_bboxes <= 0:

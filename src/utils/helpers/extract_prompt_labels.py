@@ -15,7 +15,7 @@ def extract_labels_from_prompts(
             Supported formats:
             - Keys containing "pts" or "bboxes":
                 dict[int, Point3D] or dict[int, BBox3D]
-            - Keys containing "diameter_annotations" or "spline_scribbles":
+            - Keys containing "scribble_diameter_ann" or "scribble_spline":
                 np.ndarray of integer labels (0 is ignored)
 
     Returns:
@@ -31,14 +31,14 @@ def extract_labels_from_prompts(
             if isinstance(prompt_content, Mapping):
                 labels_detected.update(prompt_content.keys())  # extract dict keys as labels
 
-        elif "diameter_annotations" in prompt_name or "spline_scribbles" in prompt_name:
+        elif "scribble_diameter_ann" in prompt_name or "scribble_spline" in prompt_name:
             # extract unique non-zero labels from array-like input
             labels_detected.update(int(x) for x in np.unique(prompt_content) if x != 0)
 
     # deterministic output
     return sorted(labels_detected)
 
-def has_nonzero_labels(
+def has_labels(
     prompts_dict: dict[str, dict[int, object] | np.ndarray]
 ) -> bool:
     """
@@ -50,7 +50,7 @@ def has_nonzero_labels(
 
             Supported formats:
             - "pts" / "bboxes": dict[int, ...] (labels in keys)
-            - "diameter_annotations" / "spline_scribbles": np.ndarray (labels in values)
+            - "scribble_diameter_ann" / "scribble_spline": np.ndarray (labels in values)
 
     Returns:
         bool:
@@ -65,7 +65,7 @@ def has_nonzero_labels(
                 return True
 
         # array-based prompts (labels stored in values)
-        elif "diameter_annotations" in prompt_name or "spline_scribbles" in prompt_name:
+        elif "scribble_diameter_ann" in prompt_name or "scribble_spline" in prompt_name:
             if np.any(prompt_content != 0):
                 return True
 

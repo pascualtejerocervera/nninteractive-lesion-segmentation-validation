@@ -6,10 +6,10 @@ from utils.helpers.sample_slices import sample_slices_from_mask
 def generate_pts_prompts(
     pos_mask: np.ndarray,
     neg_mask: np.ndarray,
-    num_pts_pos: int = 0,
-    num_pts_neg: int = 0,
+    num_pt_pos: int = 0,
+    num_pt_neg: int = 0,
     num_slices: int = 1,
-    neg_pts_dilation_iter: int = 3,
+    pt_neg_dilation_iter: int = 3,
     rng: np.random.Generator | None = None,
 ) -> tuple[tuple[float, float, float], ...]:
     """Generate positive and/or negative point prompts from a 3D mask.
@@ -24,9 +24,9 @@ def generate_pts_prompts(
         pos_mask: Binary 3D mask of shape ``(H, W, D)`` where foreground voxels
             are represented by ``True`` (or ``1``) and background voxels by
             ``False`` (or ``0``).
-        num_pts_pos: Number of positive points to sample per selected slice.
-        num_pts_neg: Number of negative points to sample per selected slice.
-        neg_pts_dilation_iter: Number of binary dilation iterations used to
+        num_pt_pos: Number of positive points to sample per selected slice.
+        num_pt_neg: Number of negative points to sample per selected slice.
+        pt_neg_dilation_iter: Number of binary dilation iterations used to
             create the negative sampling region from the foreground mask.
         num_slices: Number of axial slices to sample from the foreground
             extent of the mask.
@@ -40,35 +40,33 @@ def generate_pts_prompts(
         zero.
 
     Raises:
-        ValueError: If the foreground or background mask is not a NumPy array.
-        ValueError: If the foreground or background mask is not 3-dimensional.
-        ValueError: If the foreground or background mask is not binary.
+        ValueError: If the positive or negative mask is not a NumPy array.
+        ValueError: If the positive or negative mask is not 3-dimensional.
+        ValueError: If the positive or negative mask is not binary.
         ValueError: If the number of positive and negative points to generate
             is not positive.
         ValueError: If the number of slices to sample is not positive.
         ValueError: If the number of dilation iterations for negative point
             generation is less than 1.
-        ValueError: If the foreground mask contains no foreground voxels.
+        ValueError: If the positive mask contains no foreground voxels.
     """
     # Input mask validation
     if not isinstance(pos_mask, np.ndarray) or not isinstance(neg_mask, np.ndarray):
-        raise ValueError("Foreground and background masks must be numpy arrays.")
+        raise ValueError("Positive and negative masks must be numpy arrays.")
     if pos_mask.ndim != 3 or neg_mask.ndim != 3:
-        raise ValueError("Foreground and background masks must be 3D arrays.")
+        raise ValueError("Positive and negative masks must be 3D arrays.")
     
-    is_binary_pos_mask = (pos_mask.dtype == bool) or (pos_mask.max() <= 1 and pos_mask.min() >= 0)
-    if not is_binary_pos_mask:
-        raise ValueError("Foreground mask must be binary (values 0/1 or bool).")
-    is_binary_neg_mask = (neg_mask.dtype == bool) or (neg_mask.max() <= 1 and neg_mask.min() >= 0)
-    if not is_binary_neg_mask:
-        raise ValueError("Background mask must be binary (values 0/1 or bool).")
+    if not pos_mask.dtype == bool:        
+        raise ValueError("Positive mask must be binary (values 0/1 or bool).")
+    if not neg_mask.dtype == bool:
+        raise ValueError("Negative mask must be binary (values 0/1 or bool).")
     
     # Parameters validation
-    if num_pts_pos <= 0 and num_pts_neg <= 0:
+    if num_pt_pos <= 0 and num_pt_neg <= 0:
         raise ValueError("Number of positive or negative points to generate must be greater than zero.")
     if num_slices <= 0:
         raise ValueError("Number of slices to sample must be greater than zero.")
-    if neg_pts_dilation_iter < 1:
+    if pt_neg_dilation_iter < 1:
         raise ValueError("Number of dilation iterations for negative point generation must be at least 1.")
 
     # Create a random generator if not provided
@@ -76,9 +74,9 @@ def generate_pts_prompts(
         rng = np.random.default_rng()
     
     # Select the reference mask for slice sampling based on the requested number of positive and negative points
-    if num_pts_pos > 0 and np.any(pos_mask):
+    if num_pt_pos > 0 and np.any(pos_mask):
         ref_mask = pos_mask
-    elif num_pts_neg > 0 and np.any(neg_mask):
+    elif num_pt_neg > 0 and np.any(neg_mask):
         ref_mask = neg_mask
     else:
         raise ValueError(
@@ -103,7 +101,7 @@ def generate_pts_prompts(
     for slice_idx in sampled_slices_idx:
 
         # Foreground sampling
-        if num_pts_pos > 0:
+        if num_pt_pos > 0:
             # Extract 2D foreground mask for current slice
             slice_pos_mask = pos_mask[:, :, slice_idx]
 
@@ -112,10 +110,10 @@ def generate_pts_prompts(
                 # Get all foreground coordinates (y, x)
                 coords_pos = np.argwhere(slice_pos_mask)
 
-                # Randomly select up to num_pts_pos points
+                # Randomly select up to num_pt_pos points
                 idx = rng.choice(
                     coords_pos.shape[0],
-                    size=min(num_pts_pos, coords_pos.shape[0]),
+                    size=min(num_pt_pos, coords_pos.shape[0]),
                     replace=False,
                 )
 
@@ -128,7 +126,7 @@ def generate_pts_prompts(
                 )
 
         # Background sampling
-        if num_pts_neg > 0:
+        if num_pt_neg > 0:
             # Extract 2D background mask for current slice
             slice_neg_mask = neg_mask[:, :, slice_idx]
 
@@ -136,10 +134,10 @@ def generate_pts_prompts(
             if np.any(slice_neg_mask):
                 coords_neg = np.argwhere(slice_neg_mask)
 
-                # Randomly select up to num_pts_neg points
+                # Randomly select up to num_pt_neg points
                 idx = rng.choice(
                     coords_neg.shape[0],
-                    size=min(num_pts_neg, coords_neg.shape[0]),
+                    size=min(num_pt_neg, coords_neg.shape[0]),
                     replace=False,
                 )
 

@@ -41,11 +41,11 @@ def save_prompt_masks(prompts_dict, ref_affine, ref_header, output_dir):
 
     Args:
         prompts_dict: Dictionary containing the generated prompts. Keys can include:
-            - "pos_pts": dict[label, Point3D]
-            - "neg_pts": dict[label, Point3D]
-            - "pos_bboxes": dict[label, BBox3D]
-            - "diameter_annotations": np.ndarray of shape (D, H, W) and dtype uint8, where non-zero values indicate diameter annotation voxels.
-            - "spline_scribbles": np.ndarray of shape (D, H, W) and dtype uint8, where non-zero values indicate spline scribble voxels.
+            - "pt_pos": dict[label, Point3D]
+            - "pt_neg": dict[label, Point3D]
+            - "bbox_pos": dict[label, BBox3D]
+            - "scribble_diameter_ann": np.ndarray of shape (D, H, W) and dtype uint8, where non-zero values indicate diameter annotation voxels.
+            - "scribble_spline": np.ndarray of shape (D, H, W) and dtype uint8, where non-zero values indicate spline scribble voxels.
         ref_affine: Affine matrix to use for saving the prompts (can be the same as the original image or an 
             identity matrix).
         ref_header: NIfTI image header to use for saving the prompt masks (can be the same as the original 
@@ -62,7 +62,7 @@ def save_prompt_masks(prompts_dict, ref_affine, ref_header, output_dir):
 
 def save_prompt_markups_json(prompts_dict, affine, out_path):
 
-    if "pos_pts" not in prompts_dict and "neg_pts" not in prompts_dict and "pos_bboxes" not in prompts_dict:
+    if "pt_pos" not in prompts_dict and "pt_neg" not in prompts_dict and "bbox_pos" not in prompts_dict:
         print("No point or bounding box prompts found. Skipping saving markups JSON.")
         return
 
@@ -86,7 +86,7 @@ def save_prompt_markups_json(prompts_dict, affine, out_path):
     # -------------------------
     # POSITIVE POINTS
     # -------------------------
-    for label, pts in (prompts_dict.get("pos_pts") or {}).items():
+    for label, pts in (prompts_dict.get("pt_pos") or {}).items():
         for idx, pt in enumerate(pts): 
             control_points.append({
                 "label": f"PT-POS-label={label}-idx={idx}",
@@ -96,7 +96,7 @@ def save_prompt_markups_json(prompts_dict, affine, out_path):
     # -------------------------
     # NEGATIVE POINTS
     # -------------------------
-    for label, pts in (prompts_dict.get("neg_pts") or {}).items():
+    for label, pts in (prompts_dict.get("pt_neg") or {}).items():
         for idx, pt in enumerate(pts):
             control_points.append({
                 "label": f"PT-NEG-label={label}-idx={idx}",
@@ -106,7 +106,7 @@ def save_prompt_markups_json(prompts_dict, affine, out_path):
     # -------------------------
     # BOUNDING BOXES → 8 CORNERS
     # -------------------------
-    for label, bboxes in (prompts_dict.get("pos_bboxes") or {}).items():
+    for label, bboxes in (prompts_dict.get("bbox_pos") or {}).items():
         for idx, bbox in enumerate(bboxes):
             for pt in bbox_to_corner_points(bbox):
                 control_points.append({

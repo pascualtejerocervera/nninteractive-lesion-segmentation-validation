@@ -16,6 +16,7 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "scikit-image>=0.21",
+    "nibabel>=5.0"
 ]
 
 [project.optional-dependencies]
@@ -23,7 +24,8 @@ dev = [
     "pytest",
     "black",
     "ruff",
-    "ipython"
+    "ipython",
+    "pytest"
 ]
 
 [tool.setuptools]

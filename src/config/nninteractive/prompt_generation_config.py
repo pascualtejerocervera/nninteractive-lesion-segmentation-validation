@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 DeviceType = Literal["cpu", "cuda", "mps"]
@@ -10,6 +10,7 @@ class PromptNoiseConfig(BaseModel):
     """
     Controls stochasticity in simulated radiologist prompts.
     """
+    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
 
     point_jitter_std: float = Field(
         default=0.0,
@@ -26,6 +27,8 @@ class NNInteractivePromptGenerationConfig(BaseModel):
     """
     Configuration for interactive segmentation prompt generation.
     """
+    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
+
     # General settings
     seed: int | None = Field(
         default=None,
@@ -44,13 +47,13 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         description="Iterations of dilation to create a negative mask from the positive mask for point prompts. This ensures that negative points are sampled from a background region that is sufficiently separated from the lesion."
     )
     # Point prompting constraints
-    num_pts_pos: int = Field(
+    num_pt_pos: int = Field(
         default=0, 
         ge=0, 
         le=3, 
         description="Number of positive point prompts per label and per slice (0-3)"
     )
-    num_pts_neg: int = Field(
+    num_pt_neg: int = Field(
         default=0, 
         ge=0, 
         le=3, 
@@ -61,7 +64,7 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         ge=1,
         description="Number of slices to consider for point prompting"
     )
-    neg_pts_dilation_iter: int = Field(
+    pt_neg_dilation_iter: int = Field(
         default=3,
         ge=1,
         description="Number of dilation iterations to apply to the positive mask when generating negative point prompts (to ensure separation from the lesion)"
@@ -81,7 +84,7 @@ class NNInteractivePromptGenerationConfig(BaseModel):
     )
 
     # Diameter annotation prompting constraints
-    diameter_annotation: bool = Field(
+    scribble_diameter_ann: bool = Field(
         default=False,
         description="Enable diameter-based annotation mode (e.g., simulate lesion diameter prompts)"
     )
@@ -92,21 +95,21 @@ class NNInteractivePromptGenerationConfig(BaseModel):
     )
 
     # Spline scribble mode
-    spline_scribble: bool = Field(
+    scribble_spline: bool = Field(
         default=False,
         description="Enable spline-based scribble annotations instead of point-based prompts"
     )
-    num_slices_spline_scribble: int = Field(
+    num_slices_scribble_spline: int = Field(
         default=1,
         ge=1,
         description="Number of slices to consider for spline scribble prompting (typically 1, as scribble annotation is generated on a single slice)"
     )
-    num_spline_scribbles: int = Field(
+    num_scribble_spline: int = Field(
         default=1,
         ge=1,
         description="Number of spline scribble prompts per label (0-1) and per slice (typically 1)"
     )
-    num_control_points_spline_scribble: int = Field(
+    num_control_points_scribble_spline: int = Field(
         default=3,
         ge=3,
         description="Number of control points to define the spline scribble (minimum 3 for a valid spline)"
@@ -128,13 +131,13 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         if self.noise is None:
             self.noise = PromptNoiseConfig()
 
-        has_points = (self.num_pts_pos > 0) or (self.num_pts_neg > 0)
+        has_points = (self.num_pt_pos > 0) or (self.num_pt_neg > 0)
 
         has_bbox = self.num_bbox_pos > 0
 
         has_structured_prompt = (
-            self.diameter_annotation
-            or self.spline_scribble
+            self.scribble_diameter_ann
+            or self.scribble_spline
         )
 
         # At least one prompt source must exist
@@ -145,11 +148,10 @@ class NNInteractivePromptGenerationConfig(BaseModel):
             )
 
         # Mutual exclusivity
-        if self.spline_scribble and self.diameter_annotation:
-            raise ValueError("Use either spline_scribble or diameter_annotation, not both")
+        if self.scribble_diameter_ann and self.scribble_spline:
+            raise ValueError(
+                "Diameter annotation and spline scribble modes are mutually exclusive. "
+                "Please enable only one of them."
+            )
 
         return self
-    
-
-    def effective_total_points(self) -> int:
-        return self.num_pts_pos + self.num_pts_neg

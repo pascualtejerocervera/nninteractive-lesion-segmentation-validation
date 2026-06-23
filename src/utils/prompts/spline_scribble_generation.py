@@ -70,7 +70,7 @@ def _select_spread_control_points(slice_coords, num_control_points, rng):
 
 def generate_spline_scribble_prompts(
     pos_mask: np.ndarray,
-    num_spline_scribbles: int = 1,
+    num_scribble_spline: int = 1,
     num_slices: int = 1,
     num_control_points: int = 3,
     rng: np.random.Generator | None = None
@@ -81,7 +81,7 @@ def generate_spline_scribble_prompts(
     Args:
         pos_mask: Boolean 3D lesion mask of shape (H, W, D) where foreground voxels are represented by True (or 1) 
             and background voxels by False (or 0).
-        num_spline_scribbles: Number of independent spline scribbles.
+        num_scribble_spline: Number of independent spline scribbles.
         num_control_points: Number of spline control points.
         rng: NumPy random generator.
 
@@ -89,28 +89,27 @@ def generate_spline_scribble_prompts(
         scribble_mask: boolean 3D mask containing the spline scribbles.
 
     Raises:
-        ValueError: If the foreground mask is not a NumPy array.
-        ValueError: If the foreground mask is not 3-dimensional.
-        ValueError: If the foreground mask is not binary.
+        ValueError: If the positive mask is not a NumPy array.
+        ValueError: If the positive mask is not 3-dimensional.
+        ValueError: If the positive mask is not binary.
         ValueError: If the number of spline scribbles is not positive.
         ValueError: If the number of control points is not greater than 2.
-        ValueError: If the foreground mask contains no foreground voxels.
+        ValueError: If the positive mask contains no foreground voxels.
     """
 
     # Input mask validation
     if not isinstance(pos_mask, np.ndarray):
-        raise ValueError("Foreground mask must be a numpy array.")
+        raise ValueError("Positive mask must be a numpy array.")
     if pos_mask.ndim != 3:
-        raise ValueError("Foreground mask must be a 3D array.")
+        raise ValueError("Positive mask must be a 3D array.")
 
-    is_binary = (pos_mask.dtype == bool) or (pos_mask.max() <= 1 and pos_mask.min() >= 0)
-    if not is_binary:
-        raise ValueError("Foreground mask must be binary (values 0/1 or bool).")
+    if not pos_mask.dtype == bool:
+        raise ValueError("Positive mask must be binary (values 0/1 or bool).")
     if not np.any(pos_mask):
-        raise ValueError("Foreground mask contains no foreground voxels to generate prompts from.")
+        raise ValueError("Positive mask contains no foreground voxels to generate prompts from.")
 
     # Parameters validation
-    if num_spline_scribbles <= 0:
+    if num_scribble_spline <= 0:
         raise ValueError("Number of spline scribbles to generate must be greater than zero.")
     if num_control_points <= 2:
         raise ValueError("Number of control points must be greater than 2 to create a valid spline.")
@@ -131,7 +130,7 @@ def generate_spline_scribble_prompts(
         rng=rng,
     )
 
-    for _ in range(num_spline_scribbles):
+    for _ in range(num_scribble_spline):
 
         for z_idx in selected_slices:
 

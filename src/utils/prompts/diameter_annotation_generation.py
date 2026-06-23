@@ -6,7 +6,6 @@ from skimage.measure import find_contours
 
 from utils.helpers.sample_slices import sample_slices_from_mask
 
-
 def generate_diameter_annotation_prompts(
     pos_mask: np.ndarray,
     num_slices: int = 1, # TODO: This parameter is currently not used, as diameter annotation is typically generated on a single slice. It can be extended in the future to generate diameter annotations on multiple slices if needed.
@@ -29,23 +28,21 @@ def generate_diameter_annotation_prompts(
         diameter_mask: boolean 3D mask containing the diameter annotation line.
 
     Raises:
-        ValueError: If the foreground mask is not a NumPy array.
-        ValueError: If the foreground mask is not 3-dimensional.
-        ValueError: If the foreground mask is not binary.
-        ValueError: If the foreground mask contains no foreground voxels.
+        ValueError: If the positive mask is not a NumPy array.
+        ValueError: If the positive mask is not 3-dimensional.
+        ValueError: If the positive mask is not binary.
+        ValueError: If the positive mask contains no foreground voxels.
     """
 
     # Input mask validation
     if not isinstance(pos_mask, np.ndarray):
-        raise ValueError("Foreground mask must be a numpy array.")
+        raise ValueError("Positive mask must be a numpy array.")
     if pos_mask.ndim != 3:
-        raise ValueError("Foreground mask must be a 3D array.")
-
-    is_binary = (pos_mask.dtype == bool) or (pos_mask.max() <= 1 and pos_mask.min() >= 0)
-    if not is_binary:
-        raise ValueError("Foreground mask must be binary (values 0/1 or bool).")
+        raise ValueError("Positive mask must be a 3D array.")
+    if not pos_mask.dtype == bool:
+        raise ValueError("Positive mask must be binary (values 0/1 or bool).")
     if not np.any(pos_mask):
-        raise ValueError("Foreground mask contains no foreground voxels to generate prompts from.")
+        raise ValueError("Positive mask contains no foreground voxels to generate prompts from.")
 
     # Parameters validation
     if num_slices <= 0:

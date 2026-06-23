@@ -37,6 +37,8 @@ def create_neg_mask_from_pos_mask(
 ) -> np.ndarray:
     """
     Create a negative mask by dilating the positive mask and inverting it.
+    If dilation_iter is set to 0, the negative mask will be empty (all False). Otherwise, 
+    the negative mask will be a ring around the positive mask.
 
     Args:
         pos_mask: A boolean array of shape (H, W, D) where True values indicate the presence of the lesion (foreground) and False values indicate the background.
@@ -45,19 +47,21 @@ def create_neg_mask_from_pos_mask(
         neg_mask: A boolean array of shape (H, W, D) where True values indicate the background (negative mask) and False values indicate the presence of the lesion (foreground).
     """ 
     neg_mask = np.zeros_like(pos_mask, dtype=bool)
-    tmp_mask = np.zeros_like(pos_mask, dtype=bool)
 
-    # 1. dilate label mask
-    binary_dilation(
-        pos_mask,
-        structure=struct_dil,
-        iterations=dilation_iter,
-        output=neg_mask
-    )
+    if dilation_iter > 0:
+        tmp_mask = np.zeros_like(pos_mask, dtype=bool)
 
-    # 2. create ring mask by subtracting the original positive mask from the dilated mask
-    np.logical_not(pos_mask, out=tmp_mask)  # Invert the label mask to get the background
-    np.logical_and(neg_mask, tmp_mask, out=neg_mask)  # Create a ring mask by keeping only the dilated region that is not part of the original positive mask
+        # 1. dilate label mask
+        binary_dilation(
+            pos_mask,
+            structure=struct_dil,
+            iterations=dilation_iter,
+            output=neg_mask
+        )
+
+        # 2. create ring mask by subtracting the original positive mask from the dilated mask
+        np.logical_not(pos_mask, out=tmp_mask)  # Invert the label mask to get the background
+        np.logical_and(neg_mask, tmp_mask, out=neg_mask)  # Create a ring mask by keeping only the dilated region that is not part of the original positive mask
 
     return neg_mask
 
@@ -68,7 +72,10 @@ def create_surface_band_mask(
 ) -> np.ndarray:
     """
     Detect the change of the label mask along the x, y, and z axes to create a boundary mask.
-    Then dilate the surface band mask to create a thicker boundary region. This is the reference for creating the reference positive and negative masks for the prompt generation.
+    Then dilate the surface band mask to create a thicker boundary region. This is the reference 
+    for creating the reference positive and negative masks for the prompt generation.
+    If dilation_iter is set to 0, the surface band mask will be the boundary of the label mask.
+    Otherwise, the surface band mask will be a thicker boundary region around the label mask.
 
     Args:
         pos_mask: A boolean array of shape (H, W, D) where True values indicate the presence of the lesion (foreground) and False values indicate the background.

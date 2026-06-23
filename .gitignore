@@ -219,7 +219,12 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+.DS_Store
+
 /.ipynb_checkpoints
 /.idea
 /.vscode
-test_prompt_generation.py
+debug_*
+model_weights/
+tests/
+download_data.py

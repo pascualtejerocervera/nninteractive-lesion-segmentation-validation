@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from config.nninteractive_prompt_generation_config import NNInteractivePromptGenerationConfig
+from config.nninteractive.prompt_generation_config import NNInteractivePromptGenerationConfig
 from utils.helpers.create_ref_masks import create_surface_band_mask, create_neg_mask_from_pos_mask
 
 @dataclass
@@ -54,8 +54,7 @@ def create_mask_prompt_input(
         raise ValueError("Input mask must be a numpy array.")
     if mask_label.ndim != 3:
         raise ValueError("Input mask must be a 3D array.")
-    is_binary = (mask_label.dtype == bool) or (mask_label.max() <= 1 and mask_label.min() >= 0)
-    if not is_binary:
+    if not mask_label.dtype == bool:        
         raise ValueError("Input mask must be binary (values 0/1 or bool).")
     if not np.any(mask_label):
         raise ValueError("Input mask contains no foreground voxels to generate prompts from.")
