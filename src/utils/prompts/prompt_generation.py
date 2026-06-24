@@ -20,8 +20,10 @@ def generate_nninteractive_prompts(
     Generates prompts for the nnInteractive model.
 
     Args:
-        config: An instance of NNInteractivePromptGenerationConfigBase or a dictionary containing the configuration parameters for prompt generation
-        mask: A 3D numpy array representing the segmentation mask, where each unique positive integer value corresponds to a different label (e.g., 1 for label A, 2 for label B, etc.), and 0 represents the background.
+        config: An instance of NNInteractivePromptGenerationConfigBase or a dictionary containing the 
+            configuration parameters for prompt generation
+        mask: A 3D numpy array representing the segmentation mask, where each unique positive integer value 
+            corresponds to a different label (e.g., 1 for label A, 2 for label B, etc.), and 0 represents the background.
         rng: A numpy random generator for reproducibility.
     Returns:
         prompts_dict: A dictionary containing the generated prompts for each label in the mask. The keys of the dictionary are:

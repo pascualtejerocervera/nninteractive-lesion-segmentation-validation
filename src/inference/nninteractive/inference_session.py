@@ -7,6 +7,7 @@ from utils.helpers.extract_prompt_labels import extract_labels_from_prompts, has
 
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
+PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  # Either a 3D numpy array or a dictionary mapping label to (mask, ((x_min, x_max), (y_min, y_max), (z_min, z_max))) representing the cropped mask and its bounding box coordinates
 
 class NNInteractiveInferenceSession(InteractiveSegmentationModel):
     def __init__(
@@ -32,7 +33,7 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
         self.use_memory = use_memory 
 
         # Initialize the model predictor
-        self.predictor = NNInteractiveModel(
+        self.model = NNInteractiveModel(
             device=self.device,
             use_memory=self.use_memory,
             download_dir=download_dir
@@ -49,13 +50,13 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
         Args:
             image: A 3D numpy array representing the image to be set for inference.
         """
-        self.predictor.set_image(image)
+        self.model.set_image(image)
         self.input_image = image  # Store the original input image
-        self.predictor.set_target_buffer(np.zeros_like(image, dtype=np.uint8))  # Initialize target buffer with zeros
+        self.model.set_target_buffer(np.zeros_like(image, dtype=np.uint8))  # Initialize target buffer with zeros
 
     def run(
         self,
-        prompts_dict: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | np.ndarray],
+        prompts_dict: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptScribbleLasso],
         labels: list[int] | None,
     ) -> None:
         """
@@ -86,40 +87,49 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
         if any(key in prompts_dict for key in keys) and any(isinstance(prompts_dict.get(key), np.ndarray) for key in keys):
             label_mask = np.zeros_like(self.input_image, dtype=np.uint8)  # Temporary mask for label extraction
 
+        # Create final result array
+        output = np.zeros_like(self.input_image, dtype=np.uint8)  # Final result array to store the segmentation output
+
         for label in labels_extracted:
             for prompt_name, prompt_content in prompts_dict.items():
                 if "pt" in prompt_name:
                     if label in prompt_content:
                         points = prompt_content[label]
                         if "pos" in prompt_name:
-                            self.predictor.add_interaction(pt_pos=points)
+                            self.model.add_interaction(pt_pos=points)
                         elif "neg" in prompt_name:
-                            self.predictor.add_interaction(pt_neg=points)
+                            self.model.add_interaction(pt_neg=points)
 
                 elif "bbox" in prompt_name:
                     if label in prompt_content:
                         bbox = prompt_content[label]
                         if "pos" in prompt_name:
-                            self.predictor.add_interaction(bbox_pos=bbox)
+                            self.model.add_interaction(bbox_pos=bbox)
                         elif "neg" in prompt_name:
-                            self.predictor.add_interaction(bbox_neg=bbox)
+                            self.model.add_interaction(bbox_neg=bbox)
 
                 elif "scribble_diameter_ann" in prompt_name:
                     if isinstance(prompt_content, np.ndarray):
                         np.equal(prompt_content, label, out=label_mask)
-                        self.predictor.add_interaction(scribble_pos=label_mask)
+                        self.model.add_interaction(scribble_pos=label_mask)
                     elif isinstance(prompt_content, dict) and label in prompt_content:
-                        self.predictor.add_interaction(scribble_pos=prompt_content[label])
+                        self.model.add_interaction(scribble_pos=prompt_content[label])
 
                 elif "scribble_spline" in prompt_name:
                     if isinstance(prompt_content, np.ndarray):
                         np.equal(prompt_content, label, out=label_mask)
-                        self.predictor.add_interaction(scribble_pos=label_mask)
+                        self.model.add_interaction(scribble_pos=label_mask)
                     elif isinstance(prompt_content, dict) and label in prompt_content:
-                        self.predictor.add_interaction(scribble_pos=prompt_content[label])
+                        self.model.add_interaction(scribble_pos=prompt_content[label])
+
+            # Update the output array (binary mask) for the current label
+            output = np.where(self.model.target_buffer, label, output)  
+
+        # Store the final output in the predictor's target buffer
+        self._output = output
             
     def reset_session(self) -> None:
         """
         Reset the session
         """
-        pass
+        self.model.reset_session()

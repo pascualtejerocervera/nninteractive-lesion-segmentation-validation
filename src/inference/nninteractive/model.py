@@ -126,7 +126,26 @@ class NNInteractiveModel():
         
         # Set the target buffer in the predictor
         self.predictor.set_target_buffer(target_buffer)
-    
+
+    @property
+    def target_buffer(self) -> np.ndarray:          
+        """
+        Get the target buffer from the inference session. The target buffer is the output array that will be used for inference. The target buffer should be a 3D numpy array (H, W, D) for the model.
+        
+        Returns:
+            np.ndarray: The current target buffer used for inference. Format is a 3D numpy array (H, W, D) 
+                representing the segmentation output with 0 for background and 1 for foreground (dtype uint8).
+
+        Raises:
+            ValueError: If the model is not initialized before getting the target buffer.
+        """
+        if not self.is_initialized:
+            raise RuntimeError("Model is not initialized. Please initialize the model before getting the target buffer.")
+        target_buffer = self.predictor.target_buffer
+        if isinstance(target_buffer, torch.Tensor):
+            return target_buffer.clone().cpu().numpy()  # Return a copy of the target buffer as a numpy array
+        return target_buffer
+
     def add_interaction(
         self,
         pt_pos: tuple[tuple[int, int, int], ...] | None = None,

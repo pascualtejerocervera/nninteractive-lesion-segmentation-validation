@@ -1,11 +1,7 @@
-import json
 from pathlib import Path
 
 import nibabel as nib
 import numpy as np
-
-Point3D = tuple[tuple[int, int, int], ...]
-BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
 
 def load_nifti_image(file_path: Path, is_mask: bool) -> tuple[np.ndarray, np.ndarray, nib.Nifti1Header]:
     """
@@ -13,6 +9,7 @@ def load_nifti_image(file_path: Path, is_mask: bool) -> tuple[np.ndarray, np.nda
 
     Args:
         file_path: Path to the NIfTI file.
+
     Returns:
         image_np: Numpy array of the image data.
         affine: Affine transformation matrix.
@@ -31,7 +28,12 @@ def load_nifti_image(file_path: Path, is_mask: bool) -> tuple[np.ndarray, np.nda
 
     return image_np, affine, header
 
-def save_nifti_image(image_np: np.ndarray, affine: np.ndarray, header: nib.Nifti1Header , file_path: Path):
+def save_nifti_image(
+    image_np: np.ndarray, 
+    affine: np.ndarray, 
+    header: nib.Nifti1Header, 
+    file_path: Path
+) -> None:
     """
     Save a NIfTI image from a numpy array and affine matrix.
 
@@ -47,4 +49,3 @@ def save_nifti_image(image_np: np.ndarray, affine: np.ndarray, header: nib.Nifti
     # Save the NIfTI image to the specified file path
     nib.save(nifti_image, file_path)
     
-
