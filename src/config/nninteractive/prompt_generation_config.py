@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DeviceType = Literal["cpu", "cuda", "mps"]
 
+
 class PromptNoiseConfig(BaseModel):
     """
     Controls stochasticity in simulated radiologist prompts.
@@ -23,18 +24,8 @@ class PromptNoiseConfig(BaseModel):
         description="Standard deviation of Gaussian noise added to bounding box coordinates (in voxels)"
     )
 
-class NNInteractivePromptGenerationConfig(BaseModel):
-    """
-    Configuration for interactive segmentation prompt generation.
-    """
-    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
 
-    # General settings
-    seed: int | None = Field(
-        default=None,
-        ge=0,
-        description="Random seed for reproducibility; None = non-deterministic"
-    )
+class NNInteractivePromptGenerationConfig(BaseModel):
     # Input prompt mask creation
     surface_band_mask_iter: int = Field(
         default=1,
@@ -48,15 +39,15 @@ class NNInteractivePromptGenerationConfig(BaseModel):
     )
     # Point prompting constraints
     num_pt_pos: int = Field(
-        default=0, 
-        ge=0, 
-        le=3, 
+        default=0,
+        ge=0,
+        le=3,
         description="Number of positive point prompts per label and per slice (0-3)"
     )
     num_pt_neg: int = Field(
-        default=0, 
-        ge=0, 
-        le=3, 
+        default=0,
+        ge=0,
+        le=3,
         description="Number of negative point prompts per label and per slice (0-3)"
     )
     num_slices_pts: int = Field(
@@ -72,9 +63,9 @@ class NNInteractivePromptGenerationConfig(BaseModel):
 
     # Bounding box prompting constraints
     num_bbox_pos: int = Field(
-        default=0, 
-        ge=0, 
-        le=1, 
+        default=0,
+        ge=0,
+        le=1,
         description="Number of bounding box prompts per label (0-1)"
     )
     num_slices_bbox: int = Field(
@@ -155,3 +146,121 @@ class NNInteractivePromptGenerationConfig(BaseModel):
             )
 
         return self
+
+
+class NNInteractiveCropROIConfig(BaseModel):
+    """
+    Configuration for generating crop bounding boxes around lesions.
+
+    Supports four margin modes:
+      - "absolute": always pad by a fixed number of voxels (``margin``).
+      - "max_relative": pad by ``fraction`` of the lesion's largest axis extent,
+        unclamped (see ``compute_max_relative_margin``).
+      - "per_axis_relative": pad each axis independently by ``fraction`` of that
+        axis's own extent (see ``compute_per_axis_margin``). Returns a per-axis
+        tuple rather than a single voxel count.
+      - "clamped_max_relative": same as "max_relative" but constrained to
+        [``min_margin``, ``max_margin``] (see ``compute_clamped_max_relative_margin``).
+        This is the recommended default for relative margins, since it avoids
+        degenerate (too small) or runaway (too large) padding.
+    """
+    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
+
+    enable: bool = Field(
+        default=False,
+        description="Whether to generate interaction bounding boxes around lesions"
+    )
+    margin_mode: Literal[
+        "absolute",
+        "max_relative",
+        "per_axis_relative",
+        "clamped_max_relative",
+    ] = Field(
+        default="absolute",
+        description=(
+            "How to compute the margin: a fixed voxel count ('absolute'); "
+            "a fraction of the lesion's largest axis extent, unclamped ('max_relative'); "
+            "a fraction applied independently per axis ('per_axis_relative', returns a "
+            "tuple instead of a single int); or a fraction of the largest axis extent "
+            "clamped to [min_margin, max_margin] ('clamped_max_relative')."
+        ),
+    )
+    margin: int = Field(
+        default=5,
+        ge=0,
+        description="Margin (in voxels) to add around the lesion when margin_mode='absolute'."
+    )
+    fraction: float = Field(
+        default=1 / 3,
+        gt=0.0,
+        description="Fraction of the lesion's extent to use as margin. Ignored when margin_mode='absolute'."
+    )
+    min_margin: int = Field(
+        default=5,
+        ge=0,
+        description="Minimum margin (in voxels) allowed when margin_mode='clamped_max_relative'."
+    )
+    max_margin: int = Field(
+        default=64,
+        ge=0,
+        description="Maximum margin (in voxels) allowed when margin_mode='clamped_max_relative'."
+    )
+
+    @model_validator(mode="after")
+    def validate_margins(self) -> "NNInteractiveCropROIConfig":
+        if self.min_margin > self.max_margin:
+            raise ValueError(
+                f"min_margin ({self.min_margin}) cannot exceed max_margin ({self.max_margin})"
+            )
+        return self
+
+    def compute_margin(
+        self, 
+        bbox: tuple[int, int, int, int, int, int]
+    ) -> int | tuple[int, int, int]:
+        """
+        Resolve the margin to use for a given bounding box based on the configured margin_mode.
+
+        Returns:
+            An int for margin_mode in {"absolute", "max_relative", "clamped_max_relative"}.
+            A tuple[int, int, int] (oz, oy, ox) for margin_mode == "per_axis_relative".
+        """
+        if self.margin_mode == "absolute":
+            return self.margin
+
+        # Local import to avoid a hard dependency / circular import at module load time
+        from utils.geometry.compute_bbox_margin import compute_margin
+
+        return compute_margin(
+            mode=self.margin_mode,
+            bbox=bbox,
+            fraction=self.fraction,
+            min_margin=self.min_margin,
+            max_margin=self.max_margin,
+        )
+
+
+class NNInteractivePromptGenerationConfigBase(BaseModel):
+    """
+    Configuration for interactive segmentation prompt generation.
+    """
+    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
+
+    # General settings
+    seed: int | None = Field(
+        default=None,
+        ge=0,
+        description="Random seed for reproducibility; None = non-deterministic"
+    )
+
+    # Prompt generation settings
+    prompt_generation_config: NNInteractivePromptGenerationConfig = Field(
+        default_factory=NNInteractivePromptGenerationConfig,
+        description="Configuration for generating prompts (points, bounding boxes, diameter/spline annotations)"
+    )
+
+    # Interaction bounding box settings
+    crop_roi_config: NNInteractiveCropROIConfig = Field(
+        default_factory=NNInteractiveCropROIConfig,
+        description="Configuration for generating crop bounding boxes around lesions"
+    )

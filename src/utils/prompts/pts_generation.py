@@ -1,6 +1,5 @@
 import numpy as np
 
-from utils.helpers.create_ref_masks import create_neg_mask_from_pos_mask
 from utils.helpers.sample_slices import sample_slices_from_mask
 
 def generate_pts_prompts(

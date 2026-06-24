@@ -32,8 +32,12 @@ def extract_labels_from_prompts(
                 labels_detected.update(prompt_content.keys())  # extract dict keys as labels
 
         elif "scribble_diameter_ann" in prompt_name or "scribble_spline" in prompt_name:
-            # extract unique non-zero labels from array-like input
-            labels_detected.update(int(x) for x in np.unique(prompt_content) if x != 0)
+            if isinstance(prompt_content, np.ndarray):
+                # extract unique non-zero labels from array-like input
+                labels_detected.update(int(x) for x in np.unique(prompt_content) if x != 0)
+            elif isinstance(prompt_content, Mapping):
+                # If the content is a dictionary, extract labels from the keys
+                labels_detected.update(prompt_content.keys())
 
     # deterministic output
     return sorted(labels_detected)
@@ -66,7 +70,10 @@ def has_labels(
 
         # array-based prompts (labels stored in values)
         elif "scribble_diameter_ann" in prompt_name or "scribble_spline" in prompt_name:
-            if np.any(prompt_content != 0):
-                return True
-
+            if isinstance(prompt_content, np.ndarray):
+                if np.any(prompt_content != 0):
+                    return True
+            elif isinstance(prompt_content, Mapping):
+                if any(k != 0 for k in prompt_content.keys()):  
+                    return True
     return False

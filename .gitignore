@@ -224,7 +224,7 @@ __marimo__/
 /.ipynb_checkpoints
 /.idea
 /.vscode
-debug_*
+*_debug.py
 model_weights/
 tests/
 download_data.py 

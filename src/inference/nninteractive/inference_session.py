@@ -81,8 +81,10 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
         labels_extracted = sorted(set(labels) & set(extracted)) if labels is not None else extracted
 
         # Create a boolean temporary mask for label extraction if diameter or spline prompts are present
-        if "scribble_diameter_ann" in prompts_dict or "scribble_spline" in prompts_dict:
-            label_mask = np.zeros_like(self.input_image, dtype=np.uint8)
+        keys = ("scribble_diameter_ann", "scribble_spline")
+        # if ("scribble_diameter_ann" in prompts_dict or "scribble_spline" in prompts_dict) and (isinstance(prompts_dict.get("scribble_diameter_ann"), np.ndarray) or isinstance(prompts_dict.get("scribble_spline"), np.ndarray)):
+        if any(key in prompts_dict for key in keys) and any(isinstance(prompts_dict.get(key), np.ndarray) for key in keys):
+            label_mask = np.zeros_like(self.input_image, dtype=np.uint8)  # Temporary mask for label extraction
 
         for label in labels_extracted:
             for prompt_name, prompt_content in prompts_dict.items():
@@ -103,12 +105,18 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
                             self.predictor.add_interaction(bbox_neg=bbox)
 
                 elif "scribble_diameter_ann" in prompt_name:
-                    np.equal(prompt_content, label, out=label_mask)
-                    self.predictor.add_interaction(scribble_pos=label_mask)
+                    if isinstance(prompt_content, np.ndarray):
+                        np.equal(prompt_content, label, out=label_mask)
+                        self.predictor.add_interaction(scribble_pos=label_mask)
+                    elif isinstance(prompt_content, dict) and label in prompt_content:
+                        self.predictor.add_interaction(scribble_pos=prompt_content[label])
 
                 elif "scribble_spline" in prompt_name:
-                    np.equal(prompt_content, label, out=label_mask)
-                    self.predictor.add_interaction(scribble_pos=label_mask)
+                    if isinstance(prompt_content, np.ndarray):
+                        np.equal(prompt_content, label, out=label_mask)
+                        self.predictor.add_interaction(scribble_pos=label_mask)
+                    elif isinstance(prompt_content, dict) and label in prompt_content:
+                        self.predictor.add_interaction(scribble_pos=prompt_content[label])
             
     def reset_session(self) -> None:
         """

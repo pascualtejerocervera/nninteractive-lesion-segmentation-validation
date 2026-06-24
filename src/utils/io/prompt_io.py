@@ -5,7 +5,7 @@ from pathlib import Path
 import nibabel as nib
 
 from utils.io.image_io import save_nifti_image
-from utils.geometry.transforms import voxel_to_world
+from utils.geometry.voxel_transforms import voxel_to_world
 
 SCHEMA = "https://raw.githubusercontent.com/Slicer/Slicer/main/Modules/Loadable/Markups/Resources/Schema/markups-schema-v1.0.0.json#"
 Point3D = tuple[tuple[int, int, int], ...]
