@@ -3,8 +3,7 @@ from scipy.interpolate import splprep, splev
 from scipy.ndimage import binary_dilation
 from skimage.draw import line
 
-from utils.helpers.sample_slices import sample_slices_from_mask
-
+from interactive_seg.utils.helpers.sample_slices import sample_slices_from_mask
 
 def _select_spread_control_points(slice_coords, num_control_points, rng):
     """

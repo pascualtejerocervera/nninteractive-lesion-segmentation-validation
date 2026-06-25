@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.helpers.sample_slices import sample_slices_from_mask
+from interactive_seg.utils.helpers.sample_slices import sample_slices_from_mask
 
 def generate_bbox_prompts(
     pos_mask: np.ndarray, 

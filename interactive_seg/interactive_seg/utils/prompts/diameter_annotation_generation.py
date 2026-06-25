@@ -4,7 +4,7 @@ from scipy.spatial.distance import cdist
 from skimage.draw import line
 from skimage.measure import find_contours
 
-from utils.helpers.sample_slices import sample_slices_from_mask
+from interactive_seg.utils.helpers.sample_slices import sample_slices_from_mask
 
 def generate_diameter_annotation_prompts(
     pos_mask: np.ndarray,

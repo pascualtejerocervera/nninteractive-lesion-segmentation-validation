@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 DeviceType = Literal["cpu", "cuda", "mps"]
-
 
 class PromptNoiseConfig(BaseModel):
     """
@@ -229,7 +227,7 @@ class NNInteractiveCropROIConfig(BaseModel):
             return self.margin
 
         # Local import to avoid a hard dependency / circular import at module load time
-        from utils.geometry.compute_bbox_margin import compute_margin
+        from interactive_seg.interactive_seg.utils.geometry.compute_bbox_margin import compute_margin
 
         return compute_margin(
             mode=self.margin_mode,

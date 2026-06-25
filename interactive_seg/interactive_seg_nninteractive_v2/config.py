@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from typing import Literal
+from pydantic import BaseModel, Field
+
+DeviceType = Literal["cpu", "cuda", "mps"]
+
+class NNInteractiveV2ModelConfig(BaseModel):
+    """
+    Configuration for interactive segmentation prompt generation.
+    """
+    # Model version
+    model_version: Literal["v2"] = Field(
+        default="v2",
+        description="Version of the nnInteractive model to use for prompt generation."
+    )
+    # Runtime
+    device: DeviceType | None = Field(
+        default=None,
+        description="Device to run the model on (e.g., 'cpu', 'cuda', 'mps'). If None, auto-detects best available device."
+    )
+    use_memory: bool = Field(
+        default=True,
+        description="Whether to use memory-efficient attention mechanisms (if supported by the model)"
+    )
+    download_dir: str | None = Field(
+        default=None,
+        description="Directory to download model weights. If None, it creates a 'model_weights' directory in the current working directory."
+    )

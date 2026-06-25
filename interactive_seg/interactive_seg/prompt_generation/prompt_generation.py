@@ -1,19 +1,21 @@
 import numpy as np
 
-from config.nninteractive.prompt_generation_config import NNInteractivePromptGenerationConfigBase
-from utils.prompts.bbox_generation import generate_bbox_prompts
-from utils.prompts.diameter_annotation_generation import generate_diameter_annotation_prompts
-from utils.prompts.mask_prompt_input import create_mask_prompt_input
-
-from utils.prompts.pts_generation import generate_pts_prompts
-from utils.prompts.spline_scribble_generation import generate_spline_scribble_prompts
+from interactive_seg.config.prompt_generation_config import NNInteractivePromptGenerationConfigBase
+from interactive_seg.utils.prompts.bbox_generation import generate_bbox_prompts
+from interactive_seg.utils.prompts.diameter_annotation_generation import generate_diameter_annotation_prompts
+from interactive_seg.utils.prompts.mask_prompt_input import create_mask_prompt_input
+from interactive_seg.utils.prompts.pts_generation import generate_pts_prompts
+from interactive_seg.utils.prompts.spline_scribble_generation import generate_spline_scribble_prompts
+from interactive_seg_nninteractive_v1.config import NNInteractiveV1ModelConfig
+from interactive_seg_nninteractive_v2.config import NNInteractiveV2ModelConfig
 
 Point3D = tuple[tuple[int, int, int], ...]  
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  # Either a 3D numpy array or a dictionary mapping label to (mask, ((x_min, x_max), (y_min, y_max), (z_min, z_max))) representing the cropped mask and its bounding box coordinates
+PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
 
 def generate_nninteractive_prompts(
     config: NNInteractivePromptGenerationConfigBase | dict,
+    model_config: NNInteractiveV1ModelConfig | NNInteractiveV2ModelConfig | dict,
     mask: np.ndarray,
 ) -> dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptScribbleLasso]:
     """
@@ -39,14 +41,27 @@ def generate_nninteractive_prompts(
     elif not isinstance(config, NNInteractivePromptGenerationConfigBase):
         raise ValueError("Config must be an instance of NNInteractivePromptGenerationConfigBase or a dictionary.")
     
-    # Create a random generator using the provided seed for reproducibility. If None is provided, a new generator is created for non-deterministic behavior.
-    rng = np.random.default_rng(config.seed)  
-
+    # Validate the model_config if it is provided as a dictionary and convert it to an instance of the appropriate model config class
+    if isinstance(model_config, dict):
+        if model_config.get("model_version") == "v1":
+            model_config = NNInteractiveV1ModelConfig.model_validate(model_config)
+        elif model_config.get("model_version") == "v2":
+            model_config = NNInteractiveV2ModelConfig.model_validate(model_config)
+        else:
+            raise ValueError("model_config must be an instance of NNInteractiveV1ModelConfig or NNInteractiveV2ModelConfig or a dictionary with a valid model_version.")
+    
+    # If the model version is v1 and ROI cropping is enabled, raise an error since ROI cropping is not supported in v1
+    if isinstance(model_config, NNInteractiveV1ModelConfig) and config.crop_roi_config.enable:
+        raise ValueError("ROI cropping is not supported in NNInteractiveV1ModelConfig. Please set crop_roi_config.enable to False for model version v1.")
+    
     # Extract unique labels from the mask, excluding the background label (0)
     labels_unique = tuple(int(label) for label in np.unique(mask) if int(label) != 0)
     if len(labels_unique) == 0:
         raise ValueError("The mask does not contain any positive labels to generate prompts from.")
     
+    # Create a random generator using the provided seed for reproducibility. If None is provided, a new generator is created for non-deterministic behavior.
+    rng = np.random.default_rng(config.seed)  
+
     # Initialize the prompts dictionary and a boolean mask for label extraction
     prompts_dict = {}
     mask_label = np.zeros_like(mask, dtype=bool)  # Initialize mask_label to avoid potential reference before assignment

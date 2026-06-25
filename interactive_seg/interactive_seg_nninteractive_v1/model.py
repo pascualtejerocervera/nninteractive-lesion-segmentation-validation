@@ -7,13 +7,12 @@ import torch
 import numpy as np
 
 if TYPE_CHECKING:
-    from inference.nninteractive.inference_session import nnInteractiveInferenceSession
+    from nnInteractive_v1.inference.inference_session import nnInteractiveInferenceSession
 
 REPO_ID = "nnInteractive/nnInteractive"
 MODEL_NAME = "nnInteractive_v1.0"  # Updated models may be available in the future
 
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]
-class NNInteractiveModel():
+class NNInteractiveV1Model():
     def __init__(
         self,
         device: str,
@@ -52,7 +51,7 @@ class NNInteractiveModel():
             nnInteractiveInferenceSession: An instance of the nnInteractive inference session with the model loaded.
             """
         from huggingface_hub import snapshot_download  # Install huggingface_hub if not already installed
-        from nnInteractive.inference.inference_session import nnInteractiveInferenceSession
+        from nnInteractive_v1.inference.inference_session import nnInteractiveInferenceSession  # Import 
 
         # Ensure the download directory exists
         if download_dir is not None:
@@ -152,10 +151,10 @@ class NNInteractiveModel():
         pt_neg: tuple[tuple[int, int, int], ...] | None = None,
         bbox_pos: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
         bbox_neg: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
-        scribble_pos: PromptScribbleLasso | None = None,
-        scribble_neg: PromptScribbleLasso | None = None,
-        lasso_pos: PromptScribbleLasso | None = None,
-        lasso_neg: PromptScribbleLasso | None = None,
+        scribble_pos: np.ndarray | None = None,
+        scribble_neg: np.ndarray | None = None,
+        lasso_pos: np.ndarray | None = None,
+        lasso_neg: np.ndarray | None = None,
         mask_pos: np.ndarray | None = None
     ) -> None:
         if not self.is_initialized:
@@ -179,34 +178,30 @@ class NNInteractiveModel():
 
         if scribble_pos is not None:
             self.predictor.add_scribble_interaction(
-                scribble_pos if isinstance(scribble_pos, np.ndarray) else scribble_pos[0],
+                scribble_pos,
                 include_interaction=True, 
                 run_prediction=True,
-                interaction_bbox=None if isinstance(scribble_pos, np.ndarray) else scribble_pos[1]
             )
 
         if scribble_neg is not None:
             self.predictor.add_scribble_interaction(
-                scribble_neg if isinstance(scribble_neg, np.ndarray) else scribble_neg[0],
+                scribble_neg,
                 include_interaction=False, 
                 run_prediction=True,
-                interaction_bbox=None if isinstance(scribble_neg, np.ndarray) else scribble_neg[1]
             )
 
         if lasso_pos is not None:
             self.predictor.add_lasso_interaction(
-                lasso_pos if isinstance(lasso_pos, np.ndarray) else lasso_pos[0],
+                lasso_pos,
                 include_interaction=True, 
                 run_prediction=True,
-                interaction_bbox=None if isinstance(lasso_pos, np.ndarray) else lasso_pos[1]
             )
 
         if lasso_neg is not None:
             self.predictor.add_lasso_interaction(
-                lasso_neg if isinstance(lasso_neg, np.ndarray) else lasso_neg[0],
+                lasso_neg,
                 include_interaction=False, 
                 run_prediction=True,
-                interaction_bbox=None if isinstance(lasso_neg, np.ndarray) else lasso_neg[1]
             )
 
         if mask_pos is not None:

@@ -12,6 +12,7 @@ VALID_PROMPT_KEYS = {
 
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
+PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
 
 class InteractiveSegmentationModel(ABC):
     """
@@ -29,7 +30,7 @@ class InteractiveSegmentationModel(ABC):
     def run(
         self,
         image: np.ndarray,
-        prompts: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | np.ndarray],
+        prompts: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptScribbleLasso],
     ) -> None:
             
         """

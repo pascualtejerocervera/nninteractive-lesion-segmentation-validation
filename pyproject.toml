@@ -1,5 +1,3 @@
-# pyproject.toml
-
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -12,11 +10,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 dependencies = [
-    "nninteractive @ git+https://github.com/MIC-DKFZ/nnInteractive.git",
+    "nnInteractive_v1",
+    "nnInteractive_v2",
     "numpy>=1.24",
     "scipy>=1.10",
     "scikit-image>=0.21",
-    "nibabel>=5.0"
+    "nibabel>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -25,11 +24,14 @@ dev = [
     "black",
     "ruff",
     "ipython",
-    "pytest"
 ]
 
+[tool.uv.sources]
+"nnInteractive_v1" = { path = "models/nninteractive_v1", editable = true }
+"nnInteractive_v2" = { path = "models/nninteractive_v2", editable = true }
+
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "interactive_seg"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["interactive_seg"]

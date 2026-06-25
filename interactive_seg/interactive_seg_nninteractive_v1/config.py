@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field, model_validator
-
+from pydantic import BaseModel, Field
 
 DeviceType = Literal["cpu", "cuda", "mps"]
 
-class NNInteractiveModelConfig(BaseModel):
+class NNInteractiveV1ModelConfig(BaseModel):
     """
     Configuration for interactive segmentation prompt generation.
     """
+    # Model version
+    model_version: Literal["v1"] = Field(
+        default="v1",
+        description="Version of the nnInteractive model to use for prompt generation."
+    )
     # Runtime
     device: DeviceType | None = Field(
         default=None,

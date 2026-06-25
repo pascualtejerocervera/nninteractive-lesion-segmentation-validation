@@ -1,42 +1,38 @@
 import numpy as np
 
-from inference.interactive_seg_model import InteractiveSegmentationModel
-from inference.nninteractive.model import NNInteractiveModel
-from utils.device.get_device import get_device
-from utils.helpers.extract_prompt_labels import extract_labels_from_prompts, has_labels
+from interactive_seg.seg_model.interactive_seg_model import InteractiveSegmentationModel
+from interactive_seg.device.get_device import get_device
+from interactive_seg.utils.helpers.extract_prompt_labels import extract_labels_from_prompts, has_labels
+from interactive_seg_nninteractive_v2.config import NNInteractiveV2ModelConfig
+from interactive_seg_nninteractive_v2.model import NNInteractiveV2Model
 
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  # Either a 3D numpy array or a dictionary mapping label to (mask, ((x_min, x_max), (y_min, y_max), (z_min, z_max))) representing the cropped mask and its bounding box coordinates
+PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
 
-class NNInteractiveInferenceSession(InteractiveSegmentationModel):
+class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
     def __init__(
         self,
-        device: str | None = None,
-        use_memory: bool = True,
-        download_dir: str | None = None
+        config: NNInteractiveV2ModelConfig | dict,
     ) -> None:
         """
         Initialize the nnInteractive inference session.
 
         Args:
-            device: A string specifying the device to run the model on (e.g., 'cpu', 'cuda', 'mps'). 
-                If None, the device will be auto-detected.
-            use_memory: A boolean indicating whether to use memory for the inference session.
-            download_dir: A string specifying the directory to download model weights. If None, uses default cache directory.
+            config: An instance of NNInteractiveV2ModelConfig or a dictionary containing the model configuration.
         """
         # Initialize the base class
         super().__init__()
 
-        # Initial parameters
-        self.device = device or get_device()  # Use provided device or auto-detect
-        self.use_memory = use_memory 
+        # Validate the model_config if it is provided as a dictionary and convert it to an instance of NNInteractiveV2ModelConfig
+        if isinstance(config, dict):
+            config = NNInteractiveV2ModelConfig.model_validate(config)
 
         # Initialize the model predictor
-        self.model = NNInteractiveModel(
-            device=self.device,
-            use_memory=self.use_memory,
-            download_dir=download_dir
+        self.model = NNInteractiveV2Model(
+            device=config.device or get_device(),
+            use_memory=config.use_memory,
+            download_dir=config.download_dir,
         )
 
         # Other parameters can be initialized here if needed
@@ -81,14 +77,15 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
         extracted = extract_labels_from_prompts(prompts_dict)
         labels_extracted = sorted(set(labels) & set(extracted)) if labels is not None else extracted
 
-        # Create a boolean temporary mask for label extraction if diameter or spline prompts are present
-        keys = ("scribble_diameter_ann", "scribble_spline")
-        # if ("scribble_diameter_ann" in prompts_dict or "scribble_spline" in prompts_dict) and (isinstance(prompts_dict.get("scribble_diameter_ann"), np.ndarray) or isinstance(prompts_dict.get("scribble_spline"), np.ndarray)):
-        if any(key in prompts_dict for key in keys) and any(isinstance(prompts_dict.get(key), np.ndarray) for key in keys):
-            label_mask = np.zeros_like(self.input_image, dtype=np.uint8)  # Temporary mask for label extraction
+        # Create a temporary mask for label extraction if diameter or spline prompts are present
+        keys_scribble = ("scribble_diameter_ann", "scribble_spline")
+        keys_present = any(key in prompts_dict for key in keys_scribble)
+        keys_are_ndarray = any(isinstance(prompts_dict.get(key), np.ndarray) for key in keys_scribble)
+        if keys_present and keys_are_ndarray:
+            label_mask = np.zeros_like(self.input_image, dtype=np.uint8)  
 
         # Create final result array
-        output = np.zeros_like(self.input_image, dtype=np.uint8)  # Final result array to store the segmentation output
+        output = np.zeros_like(self.input_image, dtype=np.uint8)  
 
         for label in labels_extracted:
             for prompt_name, prompt_content in prompts_dict.items():
@@ -108,14 +105,7 @@ class NNInteractiveInferenceSession(InteractiveSegmentationModel):
                         elif "neg" in prompt_name:
                             self.model.add_interaction(bbox_neg=bbox)
 
-                elif "scribble_diameter_ann" in prompt_name:
-                    if isinstance(prompt_content, np.ndarray):
-                        np.equal(prompt_content, label, out=label_mask)
-                        self.model.add_interaction(scribble_pos=label_mask)
-                    elif isinstance(prompt_content, dict) and label in prompt_content:
-                        self.model.add_interaction(scribble_pos=prompt_content[label])
-
-                elif "scribble_spline" in prompt_name:
+                elif "scribble" in prompt_name:
                     if isinstance(prompt_content, np.ndarray):
                         np.equal(prompt_content, label, out=label_mask)
                         self.model.add_interaction(scribble_pos=label_mask)

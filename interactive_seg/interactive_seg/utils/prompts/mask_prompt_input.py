@@ -2,9 +2,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from config.nninteractive.prompt_generation_config import NNInteractivePromptGenerationConfigBase
-from utils.geometry.crop_nonzero_bbox import compute_nonzero_bbox, crop_nonzero_bbox_with_margin, crop_image_with_bbox
-from utils.helpers.create_ref_masks import create_surface_band_mask, create_neg_mask_from_pos_mask
+from interactive_seg.config.prompt_generation_config import NNInteractivePromptGenerationConfigBase
+from interactive_seg.utils.geometry.crop_nonzero_bbox import compute_nonzero_bbox, crop_nonzero_bbox_with_margin, crop_image_with_bbox
+from interactive_seg.utils.helpers.create_ref_masks import create_surface_band_mask, create_neg_mask_from_pos_mask
 
 @dataclass
 class MaskPromptInput:
