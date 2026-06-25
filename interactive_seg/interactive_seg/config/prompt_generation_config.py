@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-DeviceType = Literal["cpu", "cuda", "mps"]
-
 class PromptNoiseConfig(BaseModel):
     """
     Controls stochasticity in simulated radiologist prompts.
@@ -36,13 +34,13 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         description="Iterations of dilation to create a negative mask from the positive mask for point prompts. This ensures that negative points are sampled from a background region that is sufficiently separated from the lesion."
     )
     # Point prompting constraints
-    num_pt_pos: int = Field(
+    num_pts_pos: int = Field(
         default=0,
         ge=0,
         le=3,
         description="Number of positive point prompts per label and per slice (0-3)"
     )
-    num_pt_neg: int = Field(
+    num_pts_neg: int = Field(
         default=0,
         ge=0,
         le=3,
@@ -53,14 +51,14 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         ge=1,
         description="Number of slices to consider for point prompting"
     )
-    pt_neg_dilation_iter: int = Field(
+    pts_neg_dilation_iter: int = Field(
         default=3,
         ge=1,
         description="Number of dilation iterations to apply to the positive mask when generating negative point prompts (to ensure separation from the lesion)"
     )
 
     # Bounding box prompting constraints
-    num_bbox_pos: int = Field(
+    num_bboxes_pos: int = Field(
         default=0,
         ge=0,
         le=1,
@@ -120,9 +118,9 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         if self.noise is None:
             self.noise = PromptNoiseConfig()
 
-        has_points = (self.num_pt_pos > 0) or (self.num_pt_neg > 0)
+        has_points = (self.num_pts_pos > 0) or (self.num_pts_neg > 0)
 
-        has_bbox = self.num_bbox_pos > 0
+        has_bbox = self.num_bboxes_pos > 0
 
         has_structured_prompt = (
             self.scribble_diameter_ann

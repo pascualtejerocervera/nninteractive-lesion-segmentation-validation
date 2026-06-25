@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, Field
 
-DeviceType = Literal["cpu", "cuda", "mps"]
-
 class NNInteractiveV1ModelConfig(BaseModel):
     """
     Configuration for interactive segmentation prompt generation.
@@ -15,7 +13,7 @@ class NNInteractiveV1ModelConfig(BaseModel):
         description="Version of the nnInteractive model to use for prompt generation."
     )
     # Runtime
-    device: DeviceType | None = Field(
+    device: Literal["cpu", "cuda", "mps"] | None = Field(
         default=None,
         description="Device to run the model on (e.g., 'cpu', 'cuda', 'mps'). If None, auto-detects best available device."
     )

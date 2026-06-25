@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 REPO_ID = "nnInteractive/nnInteractive"
 MODEL_NAME = "nnInteractive_v1.0"  # Updated models may be available in the future
 
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]
+PromptVolume = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]
 
 class NNInteractiveV2Model():
     def __init__(
@@ -72,7 +72,7 @@ class NNInteractiveV2Model():
         # Initialize the nnInteractive inference session
         predictor = nnInteractiveInferenceSession(
             device=torch.device(device),
-            use_torch_compile=False, 
+            use_torch_compile=True, 
             verbose=False,
             torch_n_threads=os.cpu_count(),  # Use available CPU cores
             do_autozoom=True,  # Enables AutoZoom for better patching
@@ -149,34 +149,51 @@ class NNInteractiveV2Model():
 
     def add_interaction(
         self,
-        pt_pos: tuple[tuple[int, int, int], ...] | None = None,
-        pt_neg: tuple[tuple[int, int, int], ...] | None = None,
-        bbox_pos: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
-        bbox_neg: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
-        scribble_pos: PromptScribbleLasso | None = None,
-        scribble_neg: PromptScribbleLasso | None = None,
-        lasso_pos: PromptScribbleLasso | None = None,
-        lasso_neg: PromptScribbleLasso | None = None,
+        pts_pos: tuple[tuple[int, int, int], ...] | None = None,
+        pts_neg: tuple[tuple[int, int, int], ...] | None = None,
+        bboxes_pos: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
+        bboxes_neg: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
+        scribble_pos: PromptVolume | None = None,
+        scribble_neg: PromptVolume | None = None,
+        lasso_pos: PromptVolume | None = None,
+        lasso_neg: PromptVolume | None = None,
         mask_pos: np.ndarray | None = None
     ) -> None:
         if not self.is_initialized:
             raise RuntimeError("Model is not initialized. Please initialize the model before adding interactions.")
-        
-        if pt_pos is not None:
-            for pt in pt_pos:
-                self.predictor.add_point_interaction(pt, include_interaction=True, run_prediction=True)
 
-        if pt_neg is not None:
-            for pt in pt_neg:
-                self.predictor.add_point_interaction(pt, include_interaction=False, run_prediction=True)
+        # Each interaction type is mutually exclusive; only one type should be provided at a time. The function checks for the presence of each interaction type and runs the prediction.
+        if pts_pos is not None:
+            for pt in pts_pos:
+                self.predictor.add_point_interaction(
+                    pt, 
+                    include_interaction=True, 
+                    run_prediction=True
+                )
 
-        if bbox_pos is not None:
-            for bbox in bbox_pos:
-                self.predictor.add_bbox_interaction(bbox, include_interaction=True, run_prediction=True)
+        elif pts_neg is not None:
+            for pt in pts_neg:
+                self.predictor.add_point_interaction(
+                    pt, 
+                    include_interaction=False, 
+                    run_prediction=True
+                )
 
-        if bbox_neg is not None:
-            for bbox in bbox_neg:
-                self.predictor.add_bbox_interaction(bbox, include_interaction=False, run_prediction=True)
+        elif bboxes_pos is not None:
+            for bbox in bboxes_pos:
+                self.predictor.add_bbox_interaction(
+                    bbox, 
+                    include_interaction=True, 
+                    run_prediction=True
+                )
+
+        elif bboxes_neg is not None:
+            for bbox in bboxes_neg:
+                self.predictor.add_bbox_interaction(
+                    bbox, 
+                    include_interaction=False, 
+                    run_prediction=True
+                )
 
         if scribble_pos is not None:
             self.predictor.add_scribble_interaction(
@@ -186,7 +203,7 @@ class NNInteractiveV2Model():
                 interaction_bbox=None if isinstance(scribble_pos, np.ndarray) else scribble_pos[1]
             )
 
-        if scribble_neg is not None:
+        elif scribble_neg is not None:
             self.predictor.add_scribble_interaction(
                 scribble_neg if isinstance(scribble_neg, np.ndarray) else scribble_neg[0],
                 include_interaction=False, 
@@ -194,7 +211,7 @@ class NNInteractiveV2Model():
                 interaction_bbox=None if isinstance(scribble_neg, np.ndarray) else scribble_neg[1]
             )
 
-        if lasso_pos is not None:
+        elif lasso_pos is not None:
             self.predictor.add_lasso_interaction(
                 lasso_pos if isinstance(lasso_pos, np.ndarray) else lasso_pos[0],
                 include_interaction=True, 
@@ -202,7 +219,7 @@ class NNInteractiveV2Model():
                 interaction_bbox=None if isinstance(lasso_pos, np.ndarray) else lasso_pos[1]
             )
 
-        if lasso_neg is not None:
+        elif lasso_neg is not None:
             self.predictor.add_lasso_interaction(
                 lasso_neg if isinstance(lasso_neg, np.ndarray) else lasso_neg[0],
                 include_interaction=False, 
@@ -210,7 +227,7 @@ class NNInteractiveV2Model():
                 interaction_bbox=None if isinstance(lasso_neg, np.ndarray) else lasso_neg[1]
             )
 
-        if mask_pos is not None:
+        elif mask_pos is not None:
             self.predictor.add_initial_seg_interaction(
                 mask_pos,
                 run_prediction=True,

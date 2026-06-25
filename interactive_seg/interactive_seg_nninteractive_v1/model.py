@@ -126,6 +126,88 @@ class NNInteractiveV1Model():
         # Set the target buffer in the predictor
         self.predictor.set_target_buffer(target_buffer)
 
+    def add_interaction(
+        self,
+        pts_pos: tuple[tuple[int, int, int], ...] | None = None,
+        pts_neg: tuple[tuple[int, int, int], ...] | None = None,
+        bboxes_pos: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
+        bboxes_neg: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
+        scribble_pos: np.ndarray | None = None,
+        scribble_neg: np.ndarray | None = None,
+        lasso_pos: np.ndarray | None = None,
+        lasso_neg: np.ndarray | None = None,
+        mask_pos: np.ndarray | None = None
+    ) -> None:
+        if not self.is_initialized:
+            raise RuntimeError("Model is not initialized. Please initialize the model before adding interactions.")
+        
+        # Each interaction type is mutually exclusive; only one type should be provided at a time. The function checks for the presence of each interaction type and adds it to the predictor accordingly.
+        if pts_pos is not None:
+            for pt in pts_pos:
+                self.predictor.add_point_interaction(
+                    pt, 
+                    include_interaction=True, 
+                    run_prediction=True
+                )
+
+        elif pts_neg is not None:
+            for pt in pts_neg:
+                self.predictor.add_point_interaction(
+                    pt, 
+                    include_interaction=False, 
+                    run_prediction=True
+                )
+
+        elif bboxes_pos is not None:
+            for bbox in bboxes_pos:
+                self.predictor.add_bbox_interaction(
+                    bbox, 
+                    include_interaction=True, 
+                    run_prediction=True
+                )
+
+        elif bboxes_neg is not None:
+            for bbox in bboxes_neg:
+                self.predictor.add_bbox_interaction(
+                    bbox, 
+                    include_interaction=False, 
+                    run_prediction=True
+                )
+
+        elif scribble_pos is not None:
+            self.predictor.add_scribble_interaction(
+                scribble_pos,
+                include_interaction=True, 
+                run_prediction=True,
+            )
+
+        elif scribble_neg is not None:
+            self.predictor.add_scribble_interaction(
+                scribble_neg,
+                include_interaction=False, 
+                run_prediction=True,
+            )
+
+        elif lasso_pos is not None:
+            self.predictor.add_lasso_interaction(
+                lasso_pos,
+                include_interaction=True, 
+                run_prediction=True,
+            )
+
+        elif lasso_neg is not None:
+            self.predictor.add_lasso_interaction(
+                lasso_neg,
+                include_interaction=False, 
+                run_prediction=True,
+            )
+
+        elif mask_pos is not None:
+            self.predictor.add_initial_seg_interaction(
+                mask_pos,
+                run_prediction=True,
+            )           
+
     @property
     def target_buffer(self) -> np.ndarray:          
         """
@@ -144,72 +226,7 @@ class NNInteractiveV1Model():
         if isinstance(target_buffer, torch.Tensor):
             return target_buffer.clone().cpu().numpy()  # Return a copy of the target buffer as a numpy array
         return target_buffer
-
-    def add_interaction(
-        self,
-        pt_pos: tuple[tuple[int, int, int], ...] | None = None,
-        pt_neg: tuple[tuple[int, int, int], ...] | None = None,
-        bbox_pos: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
-        bbox_neg: tuple[tuple[int, int, int, int, int, int], ...] | None = None,
-        scribble_pos: np.ndarray | None = None,
-        scribble_neg: np.ndarray | None = None,
-        lasso_pos: np.ndarray | None = None,
-        lasso_neg: np.ndarray | None = None,
-        mask_pos: np.ndarray | None = None
-    ) -> None:
-        if not self.is_initialized:
-            raise RuntimeError("Model is not initialized. Please initialize the model before adding interactions.")
-        
-        if pt_pos is not None:
-            for pt in pt_pos:
-                self.predictor.add_point_interaction(pt, include_interaction=True, run_prediction=True)
-
-        if pt_neg is not None:
-            for pt in pt_neg:
-                self.predictor.add_point_interaction(pt, include_interaction=False, run_prediction=True)
-
-        if bbox_pos is not None:
-            for bbox in bbox_pos:
-                self.predictor.add_bbox_interaction(bbox, include_interaction=True, run_prediction=True)
-
-        if bbox_neg is not None:
-            for bbox in bbox_neg:
-                self.predictor.add_bbox_interaction(bbox, include_interaction=False, run_prediction=True)
-
-        if scribble_pos is not None:
-            self.predictor.add_scribble_interaction(
-                scribble_pos,
-                include_interaction=True, 
-                run_prediction=True,
-            )
-
-        if scribble_neg is not None:
-            self.predictor.add_scribble_interaction(
-                scribble_neg,
-                include_interaction=False, 
-                run_prediction=True,
-            )
-
-        if lasso_pos is not None:
-            self.predictor.add_lasso_interaction(
-                lasso_pos,
-                include_interaction=True, 
-                run_prediction=True,
-            )
-
-        if lasso_neg is not None:
-            self.predictor.add_lasso_interaction(
-                lasso_neg,
-                include_interaction=False, 
-                run_prediction=True,
-            )
-
-        if mask_pos is not None:
-            self.predictor.add_initial_seg_interaction(
-                mask_pos,
-                run_prediction=True,
-            )           
-
+    
     def reset_session(self) -> None:
         if not self.is_initialized:
             raise RuntimeError("Model is not initialized. Please initialize the model before resetting the session.")

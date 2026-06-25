@@ -8,7 +8,15 @@ from interactive_seg_nninteractive_v2.model import NNInteractiveV2Model
 
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
+PromptVolume = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
+
+VALID_PROMPT_KEYS = (
+    "pts_pos",
+    "pts_neg",
+    "bboxes_pos",
+    "scribble_diameter_ann",
+    "scribble_spline",
+)
 
 class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
     def __init__(
@@ -22,7 +30,9 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
             config: An instance of NNInteractiveV2ModelConfig or a dictionary containing the model configuration.
         """
         # Initialize the base class
-        super().__init__()
+        super().__init__(
+            valid_prompt_keys=VALID_PROMPT_KEYS
+        )
 
         # Validate the model_config if it is provided as a dictionary and convert it to an instance of NNInteractiveV2ModelConfig
         if isinstance(config, dict):
@@ -52,7 +62,7 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
 
     def run(
         self,
-        prompts_dict: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptScribbleLasso],
+        prompts_dict: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptVolume],
         labels: list[int] | None,
     ) -> None:
         """
@@ -78,7 +88,7 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
         labels_extracted = sorted(set(labels) & set(extracted)) if labels is not None else extracted
 
         # Create a temporary mask for label extraction if diameter or spline prompts are present
-        keys_scribble = ("scribble_diameter_ann", "scribble_spline")
+        keys_scribble = tuple(key for key in self.valid_prompt_keys if "scribble" in key)
         keys_present = any(key in prompts_dict for key in keys_scribble)
         keys_are_ndarray = any(isinstance(prompts_dict.get(key), np.ndarray) for key in keys_scribble)
         if keys_present and keys_are_ndarray:
@@ -93,17 +103,17 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
                     if label in prompt_content:
                         points = prompt_content[label]
                         if "pos" in prompt_name:
-                            self.model.add_interaction(pt_pos=points)
+                            self.model.add_interaction(pts_pos=points)
                         elif "neg" in prompt_name:
-                            self.model.add_interaction(pt_neg=points)
+                            self.model.add_interaction(pts_neg=points)
 
                 elif "bbox" in prompt_name:
                     if label in prompt_content:
                         bbox = prompt_content[label]
                         if "pos" in prompt_name:
-                            self.model.add_interaction(bbox_pos=bbox)
+                            self.model.add_interaction(bboxes_pos=bbox)
                         elif "neg" in prompt_name:
-                            self.model.add_interaction(bbox_neg=bbox)
+                            self.model.add_interaction(bboxes_neg=bbox)
 
                 elif "scribble" in prompt_name:
                     if isinstance(prompt_content, np.ndarray):
@@ -113,7 +123,7 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
                         self.model.add_interaction(scribble_pos=prompt_content[label])
 
             # Update the output array (binary mask) for the current label
-            output = np.where(self.model.target_buffer, label, output)  
+            output[self.model.target_buffer.view(np.bool_)] = label  # Use boolean indexing
 
         # Store the final output in the predictor's target buffer
         self._output = output
@@ -123,3 +133,11 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
         Reset the session
         """
         self.model.reset_session()
+
+    def reset(self) -> None:
+        """
+        Reset the session and clear the input image and output buffer.
+        """
+        self.reset_session()
+        self.input_image = None
+        self._output = None

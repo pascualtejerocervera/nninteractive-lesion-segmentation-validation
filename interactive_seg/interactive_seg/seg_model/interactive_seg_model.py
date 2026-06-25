@@ -2,35 +2,31 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-VALID_PROMPT_KEYS = {
-    "pt_pos",
-    "pt_neg",
-    "bbox_pos",
-    "scribble_diameter_ann",
-    "scribble_spline",
-}
-
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
-
+PromptVolume = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
 class InteractiveSegmentationModel(ABC):
     """
     Base class for interactive segmentation models.
     """
 
-    def __init__(self) -> None:
+    def __init__(self,
+        valid_prompt_keys: tuple[str, ...]  
+    ) -> None:
         """
         Initialize the interactive segmentation model.
+
+        Args:
+            valid_prompt_keys: A tuple of valid prompt keys that the model can accept.
         """
-        self.valid_prompt_keys = VALID_PROMPT_KEYS
+        self.valid_prompt_keys = valid_prompt_keys
         self._output: np.ndarray | None = None
 
     @abstractmethod
     def run(
         self,
         image: np.ndarray,
-        prompts: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptScribbleLasso],
+        prompts: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptVolume],
     ) -> None:
             
         """
@@ -53,7 +49,17 @@ class InteractiveSegmentationModel(ABC):
         pass
 
     @property
-    def output(self):
+    def output(self) -> np.ndarray:
+        """
+        Get the output of the model after running inference.
+
+        Returns:
+            np.ndarray: The output segmentation mask.
+
+        Raises:
+            ValueError: If the output has not been computed yet.
+            TypeError: If the output is not a numpy array.
+        """
         if self._output is None:
             raise ValueError("Output has not been computed yet. Please run the model with valid inputs first.")
         if not isinstance(self._output, np.ndarray):

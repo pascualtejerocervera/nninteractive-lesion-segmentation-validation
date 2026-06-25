@@ -1,14 +1,22 @@
 import numpy as np
 
 from interactive_seg.seg_model.interactive_seg_model import InteractiveSegmentationModel
-from interactive_seg_nninteractive_v1.model import NNInteractiveV1Model
 from interactive_seg.device.get_device import get_device
 from interactive_seg.utils.helpers.extract_prompt_labels import extract_labels_from_prompts, has_labels
 from interactive_seg_nninteractive_v1.config import NNInteractiveV1ModelConfig
+from interactive_seg_nninteractive_v1.model import NNInteractiveV1Model
 
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
-PromptScribbleLasso = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
+PromptVolume = np.ndarray | dict[int, tuple[np.ndarray, tuple[tuple[int, int], tuple[int, int], tuple[int, int]]]]  
+
+VALID_PROMPT_KEYS = (
+    "pts_pos",
+    "pts_neg",
+    "bboxes_pos",
+    "scribble_diameter_ann",
+    "scribble_spline",
+)
 
 class NNInteractiveV1InferenceSession(InteractiveSegmentationModel):
     def __init__(
@@ -22,7 +30,9 @@ class NNInteractiveV1InferenceSession(InteractiveSegmentationModel):
             config: An instance of NNInteractiveV1ModelConfig or a dictionary containing the model configuration.
         """
         # Initialize the base class
-        super().__init__()
+        super().__init__(
+            valid_prompt_keys=VALID_PROMPT_KEYS
+        )
 
         # Validate the model_config if it is provided as a dictionary and convert it to an instance of NNInteractiveV1ModelConfig
         if isinstance(config, dict):
@@ -52,7 +62,7 @@ class NNInteractiveV1InferenceSession(InteractiveSegmentationModel):
 
     def run(
         self,
-        prompts_dict: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptScribbleLasso],
+        prompts_dict: dict[str,  dict[int, Point3D] | dict[int, BBox3D] | PromptVolume],
         labels: list[int] | None,
     ) -> None:
         """
@@ -89,24 +99,25 @@ class NNInteractiveV1InferenceSession(InteractiveSegmentationModel):
                     if label in prompt_content:
                         points = prompt_content[label]
                         if "pos" in prompt_name:
-                            self.model.add_interaction(pt_pos=points)
+                            self.model.add_interaction(pts_pos=points)
                         elif "neg" in prompt_name:
-                            self.model.add_interaction(pt_neg=points)
+                            self.model.add_interaction(pts_neg=points)
 
                 elif "bbox" in prompt_name:
                     if label in prompt_content:
                         bbox = prompt_content[label]
                         if "pos" in prompt_name:
-                            self.model.add_interaction(bbox_pos=bbox)
+                            self.model.add_interaction(bboxes_pos=bbox)
                         elif "neg" in prompt_name:
-                            self.model.add_interaction(bbox_neg=bbox)
+                            self.model.add_interaction(bboxes_neg=bbox)
 
                 elif "scribble" in prompt_name:
                     np.equal(prompt_content, label, out=label_mask)
                     self.model.add_interaction(scribble_pos=label_mask)
 
             # Update the output array (binary mask) for the current label
-            output = np.where(self.model.target_buffer, label, output)  
+            # output = np.where(self.model.target_buffer, label, output)  
+            output[self.model.target_buffer.view(np.bool_)] = label  # Use boolean indexing
 
         # Store the final output in the predictor's target buffer
         self._output = output
@@ -116,3 +127,11 @@ class NNInteractiveV1InferenceSession(InteractiveSegmentationModel):
         Reset the session
         """
         self.model.reset_session()
+    
+    def reset(self) -> None:
+        """
+        Reset the session and clear the input image and output buffer.
+        """
+        self.reset_session()
+        self.input_image = None
+        self._output = None
