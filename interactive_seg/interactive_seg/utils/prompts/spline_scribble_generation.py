@@ -179,9 +179,10 @@ def generate_spline_scribble_prompts(
                 cc = cc[valid]
 
                 # Keep only inside lesion
-                inside = slice_mask[rr, cc]
+                # inside = slice_mask[rr, cc]
 
-                scribble_mask[rr[inside], cc[inside], z_idx] = True
+                # scribble_mask[rr[inside], cc[inside], z_idx] = True
+                scribble_mask[rr, cc, z_idx] = True  # Keep all points for now; can filter later if needed
 
     # TODO: Consider adding a parameter to control the number of dilation iterations for the spline scribble. This would allow users to adjust the thickness of the spline scribble based on their specific needs or preferences.
     # But thickness > 1 can be too much for a single slice prompt, so we keep it at 1 for now.
