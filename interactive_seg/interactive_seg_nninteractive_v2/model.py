@@ -72,7 +72,7 @@ class NNInteractiveV2Model():
         # Initialize the nnInteractive inference session
         predictor = nnInteractiveInferenceSession(
             device=torch.device(device),
-            use_torch_compile=True, 
+            use_torch_compile=False, 
             verbose=False,
             torch_n_threads=os.cpu_count(),  # Use available CPU cores
             do_autozoom=True,  # Enables AutoZoom for better patching

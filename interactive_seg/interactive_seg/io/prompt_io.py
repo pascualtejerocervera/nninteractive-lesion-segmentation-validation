@@ -4,14 +4,14 @@ from pathlib import Path
 
 import nibabel as nib
 
-from interactive_seg.interactive_seg.io.image_io import save_nifti_image
-from interactive_seg.interactive_seg.utils.geometry.voxel_transforms import voxel_to_world
+from interactive_seg.io.image_io import save_nifti_image
+from interactive_seg.utils.geometry.voxel_transforms import voxel_to_world
 
 SCHEMA = "https://raw.githubusercontent.com/Slicer/Slicer/main/Modules/Loadable/Markups/Resources/Schema/markups-schema-v1.0.0.json#"
 Point3D = tuple[tuple[int, int, int], ...]
 BBox3D = tuple[tuple[int, int, int, int, int, int], ...]
 
-def save_prompts(
+def save_prompts_dict(
     prompts_dict: dict[str, dict[int, Point3D] | dict[int, BBox3D] | np.ndarray], 
     ref_affine: np.ndarray,
     ref_header: nib.Nifti1Header,

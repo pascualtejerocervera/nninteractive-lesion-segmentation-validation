@@ -8,7 +8,7 @@ def generate_pts_prompts(
     num_pts_pos: int = 0,
     num_pts_neg: int = 0,
     num_slices: int = 1,
-    pts_neg_dilation_iter: int = 3,
+    dilation_iter_pts_neg: int = 3,
     rng: np.random.Generator | None = None,
 ) -> tuple[tuple[float, float, float], ...]:
     """Generate positive and/or negative point prompts from a 3D mask.
@@ -25,7 +25,7 @@ def generate_pts_prompts(
             ``False`` (or ``0``).
         num_pts_pos: Number of positive points to sample per selected slice.
         num_pts_neg: Number of negative points to sample per selected slice.
-        pts_neg_dilation_iter: Number of binary dilation iterations used to
+        dilation_iter_pts_neg: Number of binary dilation iterations used to
             create the negative sampling region from the foreground mask.
         num_slices: Number of axial slices to sample from the foreground
             extent of the mask.
@@ -65,7 +65,7 @@ def generate_pts_prompts(
         raise ValueError("Number of positive or negative points to generate must be greater than zero.")
     if num_slices <= 0:
         raise ValueError("Number of slices to sample must be greater than zero.")
-    if pts_neg_dilation_iter < 1:
+    if dilation_iter_pts_neg < 1:
         raise ValueError("Number of dilation iterations for negative point generation must be at least 1.")
 
     # Create a random generator if not provided

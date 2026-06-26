@@ -86,7 +86,7 @@ def generate_nninteractive_prompts(
                 num_pts_pos=config.prompt_generation_config.num_pts_pos,
                 num_pts_neg=config.prompt_generation_config.num_pts_neg, 
                 num_slices=config.prompt_generation_config.num_slices_pts, 
-                pts_neg_dilation_iter=config.prompt_generation_config.pts_neg_dilation_iter, # Ignored if num_pts_neg is 0
+                dilation_iter_pts_neg=config.prompt_generation_config.dilation_iter_pts_neg, # Ignored if num_pts_neg is 0
                 rng=rng
             )
             if pts_pos:
@@ -94,11 +94,11 @@ def generate_nninteractive_prompts(
             if pts_neg:
                 prompts_dict.setdefault("pts_neg", {})[target_label] = pts_neg
 
-        if config.prompt_generation_config.num_bboxes_pos > 0:
+        if config.prompt_generation_config.num_bbox_pos > 0:
             # Generate bounding box prompts
             bboxes_pos = generate_bbox_prompts(
                 pos_mask=mask_prompt_input.pos_mask,
-                num_bboxes=config.prompt_generation_config.num_bboxes_pos, 
+                num_bboxes=config.prompt_generation_config.num_bbox_pos, 
                 num_slices=config.prompt_generation_config.num_slices_bbox, 
                 rng=rng
             )
@@ -108,7 +108,7 @@ def generate_nninteractive_prompts(
             # Generate diameter annotation prompts 
             diameter_annotation = generate_diameter_annotation_prompts(
                 pos_mask=mask_prompt_input.pos_mask if not roi_cropping else mask_prompt_input.crop_mask,  # Use the cropped mask if cropping is enabled
-                num_slices=config.prompt_generation_config.num_slices_diameter,  # Diameter annotation is typically generated on a single slice 
+                num_slices=config.prompt_generation_config.num_slices_scribble_diameter_ann,  # Diameter annotation is typically generated on a single slice 
                 rng=rng
             )
             

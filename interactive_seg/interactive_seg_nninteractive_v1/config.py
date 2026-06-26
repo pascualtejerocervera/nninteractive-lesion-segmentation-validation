@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 class NNInteractiveV1ModelConfig(BaseModel):
     """
     Configuration for interactive segmentation prompt generation.
     """
+
+    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
+    
     # Model version
     model_version: Literal["v1"] = Field(
         default="v1",

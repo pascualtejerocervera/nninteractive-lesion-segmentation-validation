@@ -22,6 +22,9 @@ class PromptNoiseConfig(BaseModel):
 
 
 class NNInteractivePromptGenerationConfig(BaseModel):
+
+    model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
+
     # Input prompt mask creation
     surface_band_mask_iter: int = Field(
         default=1,
@@ -51,14 +54,14 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         ge=1,
         description="Number of slices to consider for point prompting"
     )
-    pts_neg_dilation_iter: int = Field(
+    dilation_iter_pts_neg: int = Field(
         default=3,
         ge=1,
         description="Number of dilation iterations to apply to the positive mask when generating negative point prompts (to ensure separation from the lesion)"
     )
 
     # Bounding box prompting constraints
-    num_bboxes_pos: int = Field(
+    num_bbox_pos: int = Field(
         default=0,
         ge=0,
         le=1,
@@ -75,7 +78,7 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         default=False,
         description="Enable diameter-based annotation mode (e.g., simulate lesion diameter prompts)"
     )
-    num_slices_diameter: int = Field(
+    num_slices_scribble_diameter_ann: int = Field(
         default=1,
         ge=1,
         description="Number of slices to consider for diameter annotation prompting (typically 1, as diameter annotation is generated on a single slice)"
@@ -120,7 +123,7 @@ class NNInteractivePromptGenerationConfig(BaseModel):
 
         has_points = (self.num_pts_pos > 0) or (self.num_pts_neg > 0)
 
-        has_bbox = self.num_bboxes_pos > 0
+        has_bbox = self.num_bbox_pos > 0
 
         has_structured_prompt = (
             self.scribble_diameter_ann
