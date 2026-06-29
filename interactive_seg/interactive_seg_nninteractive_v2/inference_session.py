@@ -110,6 +110,7 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
                 sync_device(self.device)  # Synchronize the device before inference for accurate timing
                 start_time = time.perf_counter()  # Start timing
 
+            # Process each prompt type for the current label
             for prompt_name, prompt_content in prompts_dict.items():
                 if "pt" in prompt_name:
                     if label in prompt_content:
@@ -147,14 +148,17 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
             
     def reset_session(self) -> None:
         """
-        Reset the session
+        Reset the session which clears the model's internal state, including any previous interactions and predictions. This is useful when the user wants to start a new inference session with the same input image but different prompts or labels. The function also clears the output buffer and the inference time dictionary to ensure a clean state for the next inference session.
         """
         self.model.reset_session()
-
+        self._output = None
+        self._inference_time_per_label.clear()  
+    
     def reset(self) -> None:
         """
-        Reset the session and clear the input image and output buffer.
+        Reset the session and clear the input image and output buffer. This is useful when the user wants to start a completely new inference session with a different input image. The function also clears the inference time dictionary to ensure a clean state for the next inference session.
         """
         self.reset_session()
         self.input_image = None
         self._output = None
+        self._inference_time_per_label.clear()  

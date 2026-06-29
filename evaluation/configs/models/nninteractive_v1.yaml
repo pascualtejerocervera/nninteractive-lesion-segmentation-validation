@@ -4,7 +4,7 @@ model_config:
   device: null
   sync_device: true
   use_memory: true
-  download_dir: ../../../model_weights
+  download_dir: null
 
 prompt_generation:
   seed: null

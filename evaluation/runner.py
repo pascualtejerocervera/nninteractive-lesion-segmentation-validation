@@ -241,10 +241,6 @@ class EvaluationRunner:
         model_config = config["model_config"]
         prompt_config = config["prompt_generation"]
 
-        # Resolve the download directory to an absolute path so the
-        # predictor doesn't depend on the current working directory.
-        model_config["download_dir"] = str(Path(model_config["download_dir"]).expanduser().resolve())
-
         predictor = build_predictor(model_run.name, model_config)
 
         for sample_index in range(len(dataset)):

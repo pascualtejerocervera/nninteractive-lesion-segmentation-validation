@@ -54,9 +54,9 @@ class NNInteractiveV1Model():
 
         # Ensure the download directory exists
         if download_dir is not None:
-            download_dir = Path(download_dir)
+            download_dir = Path(download_dir).expanduser().resolve()  # Resolve to an absolute path
         else:
-            download_dir = Path(__file__).parent / "model_weights"  # Default download directory
+            download_dir = (Path(__file__).parents[2] / "model_weights").expanduser().resolve()  # Default download directory
         download_dir.mkdir(parents=True, exist_ok=True) # Create the directory if it doesn't exist
 
         # Download the model from Hugging Face Hub

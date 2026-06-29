@@ -111,8 +111,6 @@ def create_mask_prompt_input(
 
     )
 
-    print(f"Positive mask voxels: {np.sum(pos_mask)}, Negative mask voxels: {np.sum(neg_mask)}, Surface band mask voxels: {np.sum(surface_band_mask)}")
-
     # Compute the cropped version of the union of the positive, surface band, and negative masks to create a bounding box around the lesion and its surrounding region. This is used to crop the input image and masks for prompt generation of scribble prompts (diameter and spline) to reduce the search space and improve prompt generation efficiency.
     crop_mask, crop_bbox, crop_pos_mask = None, None, None
     if config.crop_roi_config.enable:
