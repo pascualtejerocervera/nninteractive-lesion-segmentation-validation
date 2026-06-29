@@ -1,0 +1,13 @@
+name: longitudinal_ct
+class: LongitudinalCTDataset
+module: datasets.longitudinal_ct
+
+root: 
+image_folder: null
+mask_folder: null
+
+inputs_tr_folder: inputsTr
+targets_tr_folder: targetsTr
+
+modality: ct
+dimension: 3d

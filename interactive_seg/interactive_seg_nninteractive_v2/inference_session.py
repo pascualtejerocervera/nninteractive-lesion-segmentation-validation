@@ -1,7 +1,9 @@
+import time
+
 import numpy as np
 
 from interactive_seg.seg_model.interactive_seg_model import InteractiveSegmentationModel
-from interactive_seg.device.get_device import get_device
+from interactive_seg.device.device import get_device, sync_device
 from interactive_seg.utils.helpers.extract_prompt_labels import extract_labels_from_prompts, has_labels
 from interactive_seg_nninteractive_v2.config import NNInteractiveV2ModelConfig
 from interactive_seg_nninteractive_v2.model import NNInteractiveV2Model
@@ -38,9 +40,13 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
         if isinstance(config, dict):
             config = NNInteractiveV2ModelConfig.model_validate(config)
 
+        # Get model device and sync_device flag from the configuration
+        self.device = config.device or get_device()  # Use the specified device or auto-detect the best available device
+        self.sync_device = config.sync_device  # Store the sync_device flag from the configuration
+
         # Initialize the model predictor
         self.model = NNInteractiveV2Model(
-            device=config.device or get_device(),
+            device=self.device,
             use_memory=config.use_memory,
             download_dir=config.download_dir,
         )
@@ -98,6 +104,12 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
         output = np.zeros_like(self.input_image, dtype=np.uint8)  
 
         for label in labels_extracted:
+
+            # Synchronize the device and start timing if sync_device is enabled
+            if self.sync_device:
+                sync_device(self.device)  # Synchronize the device before inference for accurate timing
+                start_time = time.perf_counter()  # Start timing
+
             for prompt_name, prompt_content in prompts_dict.items():
                 if "pt" in prompt_name:
                     if label in prompt_content:
@@ -121,6 +133,11 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
                         self.model.add_interaction(scribble_pos=label_mask)
                     elif isinstance(prompt_content, dict) and label in prompt_content:
                         self.model.add_interaction(scribble_pos=prompt_content[label])
+
+            if self.sync_device:
+                sync_device(self.device)  # Synchronize the device after inference for accurate timing
+                elapsed = time.perf_counter() - start_time  # Calculate elapsed time
+                self._inference_time_per_label[label] = round(elapsed, 2)  # Store the inference time for the current label, rounded to 2 decimal places
 
             # Update the output array (binary mask) for the current label
             output[self.model.target_buffer.view(np.bool_)] = label  # Use boolean indexing

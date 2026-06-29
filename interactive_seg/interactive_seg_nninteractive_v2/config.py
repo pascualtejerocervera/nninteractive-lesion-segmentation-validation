@@ -10,6 +10,12 @@ class NNInteractiveV2ModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")  # Forbid extra fields to ensure strict validation
     
+    # Model name
+    model_name: Literal["nninteractive_v2"] = Field(
+        default="nninteractive_v2",
+        description="Name of the nnInteractive model to use for prompt generation."
+    )
+
     # Model version
     model_version: Literal["v2"] = Field(
         default="v2",
@@ -19,6 +25,10 @@ class NNInteractiveV2ModelConfig(BaseModel):
     device: Literal["cpu", "cuda", "mps"] | None = Field(
         default=None,
         description="Device to run the model on (e.g., 'cpu', 'cuda', 'mps'). If None, auto-detects best available device."
+    )
+    sync_device: bool = Field(
+        default=False,
+        description="Whether to synchronize the device before and after model inference for computing benchmarking metrics. If False, the dictionary of metrics will not include the inference time."
     )
     use_memory: bool = Field(
         default=True,

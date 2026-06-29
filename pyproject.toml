@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "nnInteractive_v1",
     "nnInteractive_v2",
+    "surface-distance",
     "numpy>=1.24",
     "scipy>=1.10",
     "scikit-image>=0.21",
@@ -29,9 +30,11 @@ dev = [
 [tool.uv.sources]
 "nnInteractive_v1" = { path = "models/nninteractive_v1", editable = true }
 "nnInteractive_v2" = { path = "models/nninteractive_v2", editable = true }
+"surface-distance" = { git = "https://github.com/google-deepmind/surface-distance.git" }
 
 [tool.setuptools]
-package-dir = {"" = "interactive_seg"}
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["interactive_seg"]
+include = ["interactive_seg*"]

@@ -228,3 +228,4 @@ __marimo__/
 model_weights/
 tests/
 download_data.py 
+*_experiment

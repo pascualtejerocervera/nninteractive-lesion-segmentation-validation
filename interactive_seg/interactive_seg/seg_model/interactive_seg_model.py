@@ -21,6 +21,7 @@ class InteractiveSegmentationModel(ABC):
         """
         self.valid_prompt_keys = valid_prompt_keys
         self._output: np.ndarray | None = None
+        self._inference_time_per_label: dict[int, float] = {}  # Dictionary to store inference time per label
 
     @abstractmethod
     def run(
@@ -47,6 +48,18 @@ class InteractiveSegmentationModel(ABC):
         Reset the model's session, clearing any internal state.
         """
         pass
+
+    @property
+    def inference_time_per_label(self) -> dict[int, float]:
+        """
+        Get the inference time for each label.
+
+        Returns:
+            A dictionary mapping label indices to their corresponding inference times in seconds.
+        """
+        if not isinstance(self._inference_time_per_label, dict):
+            raise TypeError("Inference time per label must be a dictionary.")
+        return self._inference_time_per_label
 
     @property
     def output(self) -> np.ndarray:

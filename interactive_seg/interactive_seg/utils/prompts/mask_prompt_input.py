@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.ndimage import generate_binary_structure
 
 from interactive_seg.config.prompt_generation_config import NNInteractivePromptGenerationConfigBase
 from interactive_seg.utils.geometry.crop_nonzero_bbox import compute_nonzero_bbox, crop_nonzero_bbox_with_margin, crop_image_with_bbox
-from interactive_seg.utils.helpers.create_ref_masks import create_surface_band_mask, create_neg_mask_from_pos_mask
+from interactive_seg.utils.helpers.create_ref_masks import create_surface_band_mask, create_neg_mask_from_pos_mask, create_pos_mask
 
 @dataclass
 class MaskPromptInput:
@@ -75,15 +76,26 @@ def create_mask_prompt_input(
     if not isinstance(label, int) or label <= 0:
         raise ValueError("Label must be a positive integer.")
     
-    # Create the surface band mask for the current label. It detects the boundary region of the foreground mask and dilates it to create a thicker boundary region. This is used to avoid generating prompts in uncertain areas.
-    surface_band_mask = create_surface_band_mask(
-        pos_mask=mask_label,
-        dilation_iter=config.prompt_generation_config.surface_band_mask_iter
-    )
+    struct = generate_binary_structure(rank=3, connectivity=1)
 
-    # Creating the positive mask by subtracting the surface band mask from the original label mask to avoid overlap with the uncertain boundary region
-    pos_mask = np.zeros_like(mask_label, dtype=bool)
-    np.logical_and(mask_label, np.logical_not(surface_band_mask), out=pos_mask)
+    # Create the surface band mask for the current label. It detects the boundary region of the foreground mask and dilates it to create a thicker boundary region. This is used to avoid generating prompts in uncertain areas.
+    if config.prompt_generation_config.surface_band_mask_iter == 0:
+        surface_band_mask = np.zeros_like(mask_label, dtype=bool)
+        pos_mask = mask_label.copy()  # Use the original label mask as the positive mask when no surface band mask is created
+    else:
+        surface_band_mask = create_surface_band_mask(
+            pos_mask=mask_label,
+            dilation_iter=config.prompt_generation_config.surface_band_mask_iter,
+            struct=struct
+        )
+        # Creating the positive mask by subtracting the surface band mask from the original label mask to avoid overlap with the uncertain boundary region
+        pos_mask = np.zeros_like(mask_label, dtype=bool)
+        np.logical_and(mask_label, np.logical_not(surface_band_mask), out=pos_mask)
+
+    if not np.any(pos_mask):
+        # Lesion too small/thin to survive erosion or the dilation of the surface band mask has consumed all the foreground voxels. In this case, we will use the original label mask as the positive mask to ensure that we have a valid foreground region for prompt generation.
+        pos_mask = mask_label.copy()
+        surface_band_mask = np.zeros_like(mask_label, dtype=bool)
 
     # Creating the negative mask by combining the positive mask and surface band mask to create a reference mask for negative sampling, then dilating it and subtracting the original positive mask to create a ring-shaped negative sampling region around the lesion
     tmp_mask = np.zeros_like(mask_label, dtype=bool)
@@ -94,8 +106,12 @@ def create_mask_prompt_input(
     # Create the negative mask by dilating the reference mask and subtracting the original positive mask to create a ring-shaped negative sampling region around the lesion
     neg_mask = create_neg_mask_from_pos_mask(
         pos_mask=tmp_mask,
-        dilation_iter=config.prompt_generation_config.neg_mask_dilation_iter
+        dilation_iter=config.prompt_generation_config.neg_mask_dilation_iter,
+        struct_dil=struct
+
     )
+
+    print(f"Positive mask voxels: {np.sum(pos_mask)}, Negative mask voxels: {np.sum(neg_mask)}, Surface band mask voxels: {np.sum(surface_band_mask)}")
 
     # Compute the cropped version of the union of the positive, surface band, and negative masks to create a bounding box around the lesion and its surrounding region. This is used to crop the input image and masks for prompt generation of scribble prompts (diameter and spline) to reduce the search space and improve prompt generation efficiency.
     crop_mask, crop_bbox, crop_pos_mask = None, None, None

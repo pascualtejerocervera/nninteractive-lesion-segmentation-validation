@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.ndimage import binary_erosion, binary_dilation
 
+
 def create_pos_mask(
     mask: np.ndarray, 
     erosion_iter: int = 1,
@@ -65,41 +66,39 @@ def create_neg_mask_from_pos_mask(
 
     return neg_mask
 
+
 def create_surface_band_mask(
-    pos_mask: np.ndarray, 
-    dilation_iter: int = 1,
-    struct_dil: np.ndarray = np.ones((3, 3, 3), dtype=bool)
+    pos_mask: np.ndarray,
+    dilation_iter: int = 0,
+    struct: np.ndarray = np.ones((3, 3, 3), dtype=bool)
 ) -> np.ndarray:
     """
-    Detect the change of the label mask along the x, y, and z axes to create a boundary mask.
-    Then dilate the surface band mask to create a thicker boundary region. This is the reference 
-    for creating the reference positive and negative masks for the prompt generation.
-    If dilation_iter is set to 0, the surface band mask will be the boundary of the label mask.
-    Otherwise, the surface band mask will be a thicker boundary region around the label mask.
+    Creates a surface band around a binary mask.
+
+    The surface is defined as the foreground voxels that disappear after one
+    erosion. Optionally, the surface is dilated to create a thicker band.
 
     Args:
-        pos_mask: A boolean array of shape (H, W, D) where True values indicate the presence of the lesion (foreground) and False values indicate the background.
-        dilation_iter: The number of iterations to apply for dilation.
-        struct_dil: The structuring element used for dilation. Default is a 3x3x3 cube.
+        pos_mask: Boolean foreground mask.
+        dilation_iter: Number of dilation iterations. If 0, only the
+            one-voxel-thick surface is returned.
+        struct: Structuring element used for erosion and dilation.
+
     Returns:
-        boundary_mask: A boolean array of shape (H, W, D) where True values indicate the boundary region of the lesion and False values indicate the background.
+        Boolean surface band mask.
     """
-    # Detect the change of the label mask along the x, y, and z axes to create a boundary mask
-    boundary_mask = np.zeros_like(pos_mask, dtype=bool)
-    boundary_mask[:-1, :, :] |= pos_mask[:-1, :, :] != pos_mask[1:, :, :]
-    boundary_mask[:, :-1, :] |= pos_mask[:, :-1, :] != pos_mask[:, 1:, :]
-    boundary_mask[:, :, :-1] |= pos_mask[:, :, :-1] != pos_mask[:, :, 1:]
 
-    # Dilate the boundary mask to create a thicker boundary region
-    dilated_boundary_mask = np.zeros_like(boundary_mask, dtype=bool)
+    # One-voxel-thick foreground surface: voxels present in the original
+    # mask but removed by a single erosion step (i.e. they touch the
+    # background and form the outer shell).
+    surface = pos_mask & ~binary_erosion(pos_mask, structure=None)
+
     if dilation_iter > 0:
-        binary_dilation(
-            boundary_mask,
-            structure=struct_dil,
+        # Thicken the one-voxel surface into a band by dilating it outward.
+        surface = binary_dilation(
+            surface,
+            structure=struct,
             iterations=dilation_iter,
-            output=dilated_boundary_mask
         )
-    else:
-        dilated_boundary_mask = boundary_mask
 
-    return dilated_boundary_mask
+    return surface

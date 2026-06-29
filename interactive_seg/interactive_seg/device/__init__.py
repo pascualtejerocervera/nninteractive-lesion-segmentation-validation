@@ -1,7 +1,4 @@
 """Device utilities."""
-from .get_device import get_device
+from .device import get_device, sync_device
 
-__all__ = ["get_device"]
-from .get_device import get_device
-
-__all__ = ["get_device"]
+__all__ = ["get_device", "sync_device"]

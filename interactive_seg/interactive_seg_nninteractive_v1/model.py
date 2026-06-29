@@ -20,7 +20,6 @@ class NNInteractiveV1Model():
         download_dir: str | None = None
     ):
         # Initialize the model
-        self.is_initialized = False
         self.device = device
         self.use_memory = use_memory
         self.download_dir = download_dir
@@ -230,4 +229,4 @@ class NNInteractiveV1Model():
     def reset_session(self) -> None:
         if not self.is_initialized:
             raise RuntimeError("Model is not initialized. Please initialize the model before resetting the session.")
-        self.predictor.reset_session()
+        self.predictor._reset_session()
