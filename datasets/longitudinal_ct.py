@@ -141,7 +141,8 @@ class LongitudinalCTDataset(PairedNiftiMedicalSegmentationDataset):
             raise ValueError(f"Missing images for cases: {missing_images[:5]}")
         if missing_masks:
             raise ValueError(f"Missing masks for cases: {missing_masks[:5]}")
-
+        
+        # Sort keys for deterministic ordering
         keys = sorted(image_files.keys())
 
         # ---------------------------------------------------------

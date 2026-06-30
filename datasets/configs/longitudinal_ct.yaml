@@ -2,7 +2,7 @@ name: longitudinal_ct
 class: LongitudinalCTDataset
 module: datasets.longitudinal_ct
 
-root: 
+root: null
 image_folder: null
 mask_folder: null
 

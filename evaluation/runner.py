@@ -243,10 +243,21 @@ class EvaluationRunner:
 
         predictor = build_predictor(model_run.name, model_config)
 
+        # Check if the output CSV already exists and read it if so, to skip already processed samples.
+        output_csv_existing = False
+        if self.output_csv.exists():
+            output_csv_existing = True
+            output_csv = csv.DictReader(self.output_csv.open("r", newline="", encoding="utf-8"))
+
         for sample_index in range(len(dataset)):
             sample = dataset[sample_index]
             meta = sample["meta"]
             sample_id = str(meta["case_id"])
+
+            # Check if the sample was already evaluated in a previous run (e.g. if the CSV exists and has a row for this sample/model/dataset).
+            if output_csv_existing and self._check_sample_is_processed(output_csv, dataset_name, model_run.name, sample_id):
+                print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_run.name}.")
+                continue
 
             try:
                 image = sample["image"]
@@ -434,3 +445,20 @@ class EvaluationRunner:
         from evaluation.dataset_selection import load_config_name
 
         return load_config_name(config_path) or config_path.stem
+
+    @staticmethod
+    def _check_sample_is_processed(
+        output_csv: csv.DictReader, 
+        dataset_name: str, 
+        model_name: str, 
+        sample_id: str,
+    ) -> bool:
+        for row in output_csv:
+            if (
+                row["dataset_name"] == dataset_name and
+                row["model_name"] == model_name and
+                row["sample_id"] == sample_id and
+                row["status"] == "ok"
+            ):
+                return True
+        return False

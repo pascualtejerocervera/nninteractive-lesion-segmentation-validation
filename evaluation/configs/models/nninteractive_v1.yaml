@@ -7,7 +7,7 @@ model_config:
   download_dir: null
 
 prompt_generation:
-  seed: null
+  seed: 42
 
   prompt_generation_config:
     surface_band_mask_iter: 0 
