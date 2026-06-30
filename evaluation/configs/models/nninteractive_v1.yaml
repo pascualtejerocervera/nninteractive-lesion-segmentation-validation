@@ -13,10 +13,11 @@ prompt_generation:
     surface_band_mask_iter: 0 
     neg_mask_dilation_iter: 3
 
-    num_pts_pos: 0
-    num_pts_neg: 0
+    num_pts_pos: 1
+    num_pts_neg: 1
     num_slices_pts: 1
     dilation_iter_pts_neg: 3
+    alpha_sampling_pts: 1.0
 
     num_bbox_pos: 0
     num_slices_bbox: 1
@@ -24,7 +25,7 @@ prompt_generation:
     scribble_diameter_ann: false
     num_slices_scribble_diameter_ann: 1
 
-    scribble_spline: true
+    scribble_spline: false
     num_slices_scribble_spline: 1
     num_scribble_spline: 1
     num_control_points_scribble_spline: 3

@@ -47,9 +47,9 @@ def compute_surface_dist_metrics(
     avg_surface_dist_gt_to_pred, avg_surface_dist_pred_to_gt = compute_average_surface_distance(dict_surface_distances)
 
     return {
-        "dice": np.round(dice, 4),
-        "hd95": np.round(hd95, 4),
-        "hd99": np.round(hd99, 4),
-        "avg_surface_dist_gt_to_pred": np.round(avg_surface_dist_gt_to_pred, 4),
-        "avg_surface_dist_pred_to_gt": np.round(avg_surface_dist_pred_to_gt, 4),
+        "dice": round(float(dice), 4),
+        "hd95": round(float(hd95), 4),
+        "hd99": round(float(hd99), 4),
+        "avg_surface_dist_gt_to_pred": round(float(avg_surface_dist_gt_to_pred), 4),
+        "avg_surface_dist_pred_to_gt": round(float(avg_surface_dist_pred_to_gt), 4),
     }

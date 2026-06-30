@@ -59,6 +59,11 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         ge=1,
         description="Number of dilation iterations to apply to the positive mask when generating negative point prompts (to ensure separation from the lesion)"
     )
+    alpha_sampling_pts: float = Field(
+        default=1.0,
+        ge=0.0,
+        description="Exponent for distance transform-based sampling of point prompts. Higher values bias points towards the center of the lesion. Lower values allow more uniform sampling across the lesion (uniform sampling corresponds to alpha=0 which means no bias, so points are randomly sampled from the lesion mask)."
+    )
 
     # Bounding box prompting constraints
     num_bbox_pos: int = Field(

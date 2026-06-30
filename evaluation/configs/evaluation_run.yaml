@@ -10,4 +10,5 @@ model_runs:
 
 output_path: null
 save_predictions: false
+save_generated_prompts: false
 continue_on_error: false

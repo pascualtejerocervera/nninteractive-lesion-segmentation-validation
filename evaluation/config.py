@@ -53,6 +53,10 @@ class EvaluationRunConfig(BaseModel):
         default=False,
         description="Whether to write prediction masks to disk.",
     )
+    save_generated_prompts: bool = Field(
+        default=False,
+        description="Whether to save generated prompts to disk.",
+    )
     continue_on_error: bool = Field(
         default=True,
         description="Continue processing later samples if one sample fails.",

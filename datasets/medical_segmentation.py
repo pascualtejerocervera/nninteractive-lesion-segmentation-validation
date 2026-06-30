@@ -85,6 +85,7 @@ class PairedNiftiMedicalSegmentationDataset(BaseMedicalSegmentationDataset):
             "mask_path": str(sample.mask_path),
             "modality": self.modality,
             "dimension": self.dimension,
+            "shape": img_np.shape,
             "affine": affine_img,
             "header": header_img,
         }

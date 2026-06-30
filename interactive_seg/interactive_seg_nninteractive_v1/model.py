@@ -226,7 +226,18 @@ class NNInteractiveV1Model():
             return target_buffer.clone().cpu().numpy()  # Return a copy of the target buffer as a numpy array
         return target_buffer
     
+    def reset_interactions(self) -> None:
+        """
+        Reset interactions any previously added prompts (points, bounding boxes, scribbles) and the output buffer for the current inference session. 
+        """
+        if not self.is_initialized:
+            raise RuntimeError("Model is not initialized. Please initialize the model before resetting interactions.")
+        self.predictor.reset_interactions()
+
     def reset_session(self) -> None:
+        """
+        Reset the entire inference session, clearing the input image, target buffer, and any previously added prompts (points, bounding boxes, scribbles). 
+        """
         if not self.is_initialized:
             raise RuntimeError("Model is not initialized. Please initialize the model before resetting the session.")
         self.predictor._reset_session()

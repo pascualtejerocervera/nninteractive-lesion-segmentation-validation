@@ -16,6 +16,7 @@ from evaluation.metrics import compute_surface_dist_metrics
 from evaluation.predictor_factory import build_predictor
 from interactive_seg import generate_nninteractive_prompts
 from interactive_seg.io.image_io import save_nifti_image
+from interactive_seg.io.prompt_io import save_prompts_dict
 
 
 @dataclass(slots=True)
@@ -49,10 +50,15 @@ class EvaluationRow:
             in millimeters. None if an error occurred or if no ground truth exists for this label value.
         avg_dist_pred_to_gt: Average distance from prediction to ground truth for this label value,
             in millimeters. None if an error occurred or if no ground truth exists for this label value.
-        error_message: Error message if an error occurred for this sample/dataset/model combination.
         sample_img_path: Path to the input image file for this sample, if available. None if not applicable.
         sample_gt_path: Path to the ground truth mask file for this sample, if available.
             None if not applicable or if no ground truth exists for this label value.
+        sample_pred_path: Path to the predicted segmentation file for this sample, if available.
+            None if not applicable.
+        sample_prompts_path: Path to the generated prompts file for this sample, if available.
+            None if not applicable.
+        error_message: Error message if an error occurred for this sample/dataset/model combination.
+            None if no error occurred.
     """
     dataset_name: str
     model_name: str
@@ -66,10 +72,11 @@ class EvaluationRow:
     hd99: float | None = None
     avg_dist_gt_to_pred: float | None = None
     avg_dist_pred_to_gt: float | None = None
-    error_message: str | None = None
     sample_img_path: str | None = None
     sample_gt_path: str | None = None
-
+    sample_pred_path: str | None = None
+    sample_prompts_path: str | None = None
+    error_message: str | None = None
 
 class EvaluationRunner:
     """Runs evaluation of one or more models against one or more datasets.
@@ -97,9 +104,11 @@ class EvaluationRunner:
         "hd99",
         "avg_dist_gt_to_pred",
         "avg_dist_pred_to_gt",
-        "error_message",
         "sample_img_path",
         "sample_gt_path",
+        "sample_pred_path",
+        "sample_prompts_path",
+        "error_message",
     ]
 
     def __init__(
@@ -124,11 +133,12 @@ class EvaluationRunner:
 
         # Define paths for the output CSV and predictions directory.
         self.output_csv = self.output_path / "results.csv"
-        if self.config.save_predictions:
-            self.predictions_dir = self.output_path / "predictions"
-            self.predictions_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.config.save_predictions or self.config.save_generated_prompts:
+            self.results_dir = self.output_path / "saved_results"
+            self.results_dir.mkdir(parents=True, exist_ok=True)
         else:
-            self.predictions_dir = None
+            self.results_dir = None
 
         # Create a directory for saving the configuration used for this evaluation run, so it can be referenced later.
         self._save_yaml_file(
@@ -147,6 +157,10 @@ class EvaluationRunner:
         encountered will be raised after writing out the results collected
         so far.
 
+        Any rows already present in an existing results CSV (from a prior,
+        possibly interrupted run) are loaded up front, so re-running the
+        evaluation does not lose previously computed results.
+
         Returns:
             A list of EvaluationRow instances containing the results of the
             evaluation (including any error rows).
@@ -155,7 +169,10 @@ class EvaluationRunner:
             Exception: Re-raises the first encountered exception if
                 ``self.config.continue_on_error`` is False.
         """
-        rows: list[EvaluationRow] = []
+        # Start from whatever was already persisted in a previous run (if
+        # any), so resuming doesn't discard prior results when we rewrite
+        # the CSV at the end.
+        rows: list[EvaluationRow] = self._load_existing_rows(self.output_csv)
 
         # Resolve which dataset config files to evaluate against (supports
         # evaluating against "all" known dataset configs).
@@ -187,9 +204,17 @@ class EvaluationRunner:
                             sample_index=-1,
                             label=None,
                             status="error",
-                            error_message=str(exc),
+                            inference_seconds=None,
+                            dice_score=None,
+                            hd95=None,
+                            hd99=None,
+                            avg_dist_gt_to_pred=None,
+                            avg_dist_pred_to_gt=None,
                             sample_img_path=None,
                             sample_gt_path=None,
+                            sample_pred_path=None,
+                            sample_prompts_path=None,
+                            error_message=str(exc),
                         )
                     )
                     if not self.config.continue_on_error:
@@ -225,6 +250,8 @@ class EvaluationRunner:
                 where to load its config from.
             rows: The list of EvaluationRow results to append to. Mutated
                 in place so callers can observe partial progress on error.
+                May already contain rows loaded from a previous run; these
+                are used to determine which samples can be skipped.
 
         Raises:
             Exception: Re-raised for a given sample if
@@ -243,19 +270,23 @@ class EvaluationRunner:
 
         predictor = build_predictor(model_run.name, model_config)
 
-        # Check if the output CSV already exists and read it if so, to skip already processed samples.
-        output_csv_existing = False
-        if self.output_csv.exists():
-            output_csv_existing = True
-            output_csv = csv.DictReader(self.output_csv.open("r", newline="", encoding="utf-8"))
+        # Build a set of (dataset, model, sample_id) keys already marked
+        # "ok" in the rows accumulated so far (including rows loaded from
+        # a previous run), so we can skip re-processing them. Computed once
+        # up front rather than re-scanning a CSV reader per sample.
+        processed_keys = {
+            (row.dataset_name, row.model_name, row.sample_id)
+            for row in rows
+            if row.status == "ok"
+        }
 
         for sample_index in range(len(dataset)):
             sample = dataset[sample_index]
             meta = sample["meta"]
             sample_id = str(meta["case_id"])
 
-            # Check if the sample was already evaluated in a previous run (e.g. if the CSV exists and has a row for this sample/model/dataset).
-            if output_csv_existing and self._check_sample_is_processed(output_csv, dataset_name, model_run.name, sample_id):
+            # Check if the sample was already evaluated in a previous run.
+            if (dataset_name, model_run.name, sample_id) in processed_keys:
                 print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_run.name}.")
                 continue
 
@@ -277,26 +308,58 @@ class EvaluationRunner:
                 # label filtering is applied here.
                 predictor.run(prompts_dict=prompts, labels=None)
                 prediction = predictor.output
-                inference_time_per_label = predictor.inference_time_per_label if model_config["sync_device"] else None
+                inference_time_per_label = predictor.inference_time_per_label.copy() if predictor.inference_time_per_label else None
 
                 # Determine which non-background label values are present
                 # in the ground truth, so metrics are computed per label.
                 labels = self._labels(target)
 
                 # Reset predictor state so the next sample starts clean.
-                predictor.reset()
+                predictor.reset_session()
 
-                prediction_path = None
                 if self.config.save_predictions:
-                    # Save the raw prediction volume to disk as NIfTI,
-                    # reusing the original image's affine/header so it
-                    # stays aligned with the source data.
-                    prediction_path = self.predictions_dir / f"{dataset_name}__{model_run.name}__{self._safe_name(sample_id)}.nii.gz"
+                    prediction_path = (
+                        self.results_dir
+                        / dataset_name
+                        / model_run.name
+                        / self._safe_name(sample_id)
+                        / f"{self._safe_name(sample_id)}_pred.nii.gz"
+                    )
+                    prediction_path.parent.mkdir(parents=True, exist_ok=True)
                     save_nifti_image(
-                        image=prediction.astype(np.uint8, copy=False),
+                        image=image,
+                        affine=sample["meta"]["affine"],    
+                        header=sample["meta"]["header"],
+                        file_path=prediction_path.parent / f"{self._safe_name(sample_id)}_image.nii.gz",
+                    )
+                    save_nifti_image(
+                        image=target,
                         affine=sample["meta"]["affine"],
                         header=sample["meta"]["header"],
-                        path=prediction_path,
+                        file_path=prediction_path.parent / f"{self._safe_name(sample_id)}_gt.nii.gz",
+                    )
+                    save_nifti_image(
+                        image=prediction,
+                        affine=sample["meta"]["affine"],
+                        header=sample["meta"]["header"],
+                        file_path=prediction_path,
+                    )
+
+
+                if self.config.save_generated_prompts:
+                    prompts_path = (
+                        self.results_dir
+                        / dataset_name
+                        / model_run.name
+                        / self._safe_name(sample_id)
+                        / f"{self._safe_name(sample_id)}_prompts"
+                    )
+                    prompts_path.mkdir(parents=True, exist_ok=True)
+                    save_prompts_dict(
+                        prompts_dict=prompts,
+                        ref_affine=sample["meta"]["affine"],
+                        ref_header=sample["meta"]["header"],
+                        output_dir=prompts_path,
                     )
 
                 # Create temporary storage for the binary mask of the current label during prompt processing.
@@ -308,11 +371,14 @@ class EvaluationRunner:
                 for label in labels:
 
                     # Compute metrics for the current label value, using the prediction and ground truth target, along with the voxel spacing from the image header.
+                    np.equal(prediction, label, out=tmp_pred)
+                    np.equal(target, label, out=tmp_gt)
                     metrics = compute_surface_dist_metrics(
-                        np.equal(prediction, label, out=tmp_pred),
-                        np.equal(target, label, out=tmp_gt),
+                        prediction=tmp_pred,
+                        target=tmp_gt,
                         space_mm=sample["meta"]["header"].get_zooms()
                     )
+                    print(f"Computed metrics for sample {sample_id}, label {label}: {metrics}")
 
                     # Append a row for this label value, including metrics and inference time if available.
                     rows.append(
@@ -323,19 +389,21 @@ class EvaluationRunner:
                             sample_index=sample_index,
                             label=label,
                             status="ok",
-                            inference_seconds=inference_time_per_label.get(label) if inference_time_per_label else None,
+                            inference_seconds=inference_time_per_label[label] if inference_time_per_label else None,
                             dice_score=metrics["dice"],
                             hd95=metrics["hd95"],
                             hd99=metrics["hd99"],
                             avg_dist_gt_to_pred=metrics["avg_surface_dist_gt_to_pred"],
                             avg_dist_pred_to_gt=metrics["avg_surface_dist_pred_to_gt"],
+                            sample_gt_path=str(sample["meta"]["mask_path"]),
+                            sample_img_path=str(sample["meta"]["image_path"]),
+                            sample_pred_path=str(prediction_path) if self.config.save_predictions else None,
+                            sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts else None,
                             error_message=None,
-                            sample_gt_path=str(sample["meta"]["mask_path"]) if "mask_path" in sample["meta"] else None,
-                            sample_img_path=str(sample["meta"]["image_path"]) if "image_path" in sample["meta"] else None
                         )
                     )
 
-                    del tmp_pred, tmp_gt  # Clear temporary masks for the next label
+                del tmp_pred, tmp_gt  # Clear temporary masks at the end of processing for this sample to free memory.
 
             except Exception as exc:  # noqa: BLE001
                 # Record the failure for this specific sample and either
@@ -349,9 +417,17 @@ class EvaluationRunner:
                         sample_index=sample_index,
                         label=None,
                         status="error",
+                        inference_seconds=None,
+                        dice_score=None,
+                        hd95=None,
+                        hd99=None,
+                        avg_dist_gt_to_pred=None,
+                        avg_dist_pred_to_gt=None,
+                        sample_img_path=str(sample["meta"]["image_path"]),
+                        sample_gt_path=str(sample["meta"]["mask_path"]),
+                        sample_pred_path=None,
+                        sample_prompts_path=None,
                         error_message=str(exc),
-                        sample_img_path=str(sample["meta"]["image_path"]) if "image_path" in sample["meta"] else None,
-                        sample_gt_path=str(sample["meta"]["mask_path"]) if "mask_path" in sample["meta"] else None
                     )
                 )
                 if not self.config.continue_on_error:
@@ -359,7 +435,7 @@ class EvaluationRunner:
             
         # Final reset in case the loop body didn't reach the per-sample
         # reset for the last sample (e.g. it raised before getting there).
-        predictor.reset()
+        predictor.reset_session()
 
     @staticmethod
     def _load_yaml_file(path: Path) -> dict[str, Any]:
@@ -409,11 +485,66 @@ class EvaluationRunner:
             rows: The list of EvaluationRow instances to write, one per
                 CSV row, in order.
         """
-        with output_csv.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=cls.CSV_FIELDNAMES)
+        # encoding="utf-8-sig" adds a UTF-8 BOM so Excel detects the file as
+        # UTF-8 instead of misreading accented characters. delimiter=";" is
+        # used instead of "," because Excel's default list separator in most
+        # European locales (incl. NL) is a semicolon; with a comma-delimited
+        # file, double-clicking to open in Excel collapses everything into a
+        # single column. Importing via Excel's "Data > From Text/CSV" wizard
+        # with comma selected manually would also work, but ";" makes plain
+        # double-click opening work out of the box.
+        with output_csv.open("w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.DictWriter(handle, fieldnames=cls.CSV_FIELDNAMES, delimiter=";")
             writer.writeheader()
             for row in rows:
                 writer.writerow(asdict(row))
+
+    @classmethod
+    def _load_existing_rows(cls, output_csv: Path) -> list[EvaluationRow]:
+        """Loads previously written rows from an existing results CSV.
+
+        Used to resume an interrupted evaluation run without losing rows
+        that were already computed and persisted in a prior invocation
+        (since ``_write_csv`` overwrites the file each time it's called).
+
+        Args:
+            output_csv: Path to the CSV file to load, if it exists.
+
+        Returns:
+            A list of EvaluationRow instances reconstructed from the CSV,
+            or an empty list if the file does not exist.
+        """
+        if not output_csv.exists():
+            return []
+
+        rows: list[EvaluationRow] = []
+        with output_csv.open("r", newline="", encoding="utf-8-sig") as handle:
+            for raw in csv.DictReader(handle, delimiter=";"):
+                rows.append(
+                    EvaluationRow(
+                        dataset_name=raw["dataset_name"],
+                        model_name=raw["model_name"],
+                        sample_id=raw["sample_id"],
+                        sample_index=int(raw["sample_index"]),
+                        label=int(raw["label"]) if raw["label"] not in ("", None) else None,
+                        status=raw["status"],
+                        inference_seconds=cls._to_float(raw["inference_seconds"]),
+                        dice_score=cls._to_float(raw["dice_score"]),
+                        hd95=cls._to_float(raw["hd95"]),
+                        hd99=cls._to_float(raw["hd99"]),
+                        avg_dist_gt_to_pred=cls._to_float(raw["avg_dist_gt_to_pred"]),
+                        avg_dist_pred_to_gt=cls._to_float(raw["avg_dist_pred_to_gt"]),
+                        error_message=raw["error_message"] or None,
+                        sample_img_path=raw["sample_img_path"] or None,
+                        sample_gt_path=raw["sample_gt_path"] or None,
+                    )
+                )
+        return rows
+
+    @staticmethod
+    def _to_float(value: str | None) -> float | None:
+        """Converts a CSV string field back to a float, treating empty/None as None."""
+        return float(value) if value not in ("", None) else None
 
     @staticmethod
     def _safe_name(value: str) -> str:
@@ -445,20 +576,3 @@ class EvaluationRunner:
         from evaluation.dataset_selection import load_config_name
 
         return load_config_name(config_path) or config_path.stem
-
-    @staticmethod
-    def _check_sample_is_processed(
-        output_csv: csv.DictReader, 
-        dataset_name: str, 
-        model_name: str, 
-        sample_id: str,
-    ) -> bool:
-        for row in output_csv:
-            if (
-                row["dataset_name"] == dataset_name and
-                row["model_name"] == model_name and
-                row["sample_id"] == sample_id and
-                row["status"] == "ok"
-            ):
-                return True
-        return False

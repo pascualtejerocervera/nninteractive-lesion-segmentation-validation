@@ -36,7 +36,7 @@ def load_nifti_image(file_path: Path, is_mask: bool) -> tuple[np.ndarray, np.nda
     return image_np, affine, header
 
 def save_nifti_image(
-    image_np: np.ndarray, 
+    image: np.ndarray, 
     affine: np.ndarray, 
     header: nib.Nifti1Header, 
     file_path: Path
@@ -45,14 +45,14 @@ def save_nifti_image(
     Save a NIfTI image from a numpy array and affine matrix.
 
     Args:
-        image_np: Numpy array of the image data.
+        image: Numpy array of the image data.
         affine: Affine transformation matrix.
         header: NIfTI image header.
         file_path: Path to save the NIfTI file
     """
-    if not isinstance(image_np, np.ndarray):
+    if not isinstance(image, np.ndarray):
         raise ValueError("Input image must be a numpy array.")
-    if image_np.ndim != 3:
+    if image.ndim != 3:
         raise ValueError("Input image must be a 3D array.")
     if not isinstance(affine, np.ndarray) or affine.shape != (4, 4):
         raise ValueError("Affine must be a 4x4 numpy array.")
@@ -60,7 +60,7 @@ def save_nifti_image(
         raise ValueError("Header must be a nibabel Nifti1Header object.")
 
     # Create a new NIfTI image using nibabel
-    nifti_image = nib.Nifti1Image(image_np, affine, header)
+    nifti_image = nib.Nifti1Image(image, affine, header)
 
     # Save the NIfTI image to the specified file path
     nib.save(nifti_image, file_path)

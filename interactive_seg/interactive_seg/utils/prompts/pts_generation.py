@@ -1,6 +1,7 @@
 import numpy as np
 
 from interactive_seg.utils.helpers.sample_slices import sample_slices_from_mask
+from interactive_seg.utils.helpers.sample_points import sample_point_with_bias
 
 def generate_pts_prompts(
     pos_mask: np.ndarray,
@@ -9,6 +10,7 @@ def generate_pts_prompts(
     num_pts_neg: int = 0,
     num_slices: int = 1,
     dilation_iter_pts_neg: int = 3,
+    alpha_sampling_pts: float = 0.0,
     rng: np.random.Generator | None = None,
 ) -> tuple[tuple[float, float, float], ...]:
     """Generate positive and/or negative point prompts from a 3D mask.
@@ -29,6 +31,10 @@ def generate_pts_prompts(
             create the negative sampling region from the foreground mask.
         num_slices: Number of axial slices to sample from the foreground
             extent of the mask.
+        dilation_iter_pts_neg: Number of binary dilation iterations used to
+            create the negative sampling region from the foreground mask.
+        alpha_sampling_pts: Exponent for distance transform-based sampling of
+            point prompts. Higher values bias points towards the center of the lesion. Lower values allow more uniform sampling across the lesion (uniform sampling corresponds to alpha=0 which means no bias, so points are randomly sampled from the lesion mask).
         rng: NumPy random number generator. If ``None``, a new generator is
             created via ``np.random.default_rng()``.
 
@@ -106,19 +112,14 @@ def generate_pts_prompts(
 
             # Check if there are any foreground voxels in the selected slice
             if np.any(slice_pos_mask):
-                # Get all foreground coordinates (y, x)
-                coords_pos = np.argwhere(slice_pos_mask)
-
-                # Randomly select up to num_pts_pos points
-                idx = rng.choice(
-                    coords_pos.shape[0],
-                    size=min(num_pts_pos, coords_pos.shape[0]),
-                    replace=False,
+                # Sample positive points from the foreground mask with bias towards the center of the lesion
+                sampled_pos = sample_point_with_bias(
+                    mask=slice_pos_mask,
+                    alpha=alpha_sampling_pts,
+                    rng=rng,
+                    num_pts_sampled=num_pts_pos
                 )
-
-                # Store sampled points as (x, y, slice_idx)
-                for x, y in coords_pos[idx]:
-                    sampled_slice_idx_pos.append((int(x), int(y), slice_idx))
+                sampled_slice_idx_pos.extend((x, y, slice_idx) for x, y in sampled_pos)
             else:
                 raise ValueError(
                     f"No foreground voxels found in the selected slice {slice_idx} for positive point sampling."
@@ -131,21 +132,18 @@ def generate_pts_prompts(
 
             # Check if there are any background voxels in the selected slice
             if np.any(slice_neg_mask):
-                coords_neg = np.argwhere(slice_neg_mask)
-
-                # Randomly select up to num_pts_neg points
-                idx = rng.choice(
-                    coords_neg.shape[0],
-                    size=min(num_pts_neg, coords_neg.shape[0]),
-                    replace=False,
+                # Sample negative points from the background mask
+                sampled_neg = sample_point_with_bias(
+                    mask=slice_neg_mask,
+                    alpha=alpha_sampling_pts,
+                    rng=rng,
+                    num_pts_sampled=num_pts_neg
                 )
-
-                # Store sampled points as (x, y, slice_idx)
-                for x, y in coords_neg[idx]:
-                    sampled_slice_idx_neg.append((int(x), int(y), slice_idx))
+                sampled_slice_idx_neg.extend((x, y, slice_idx) for x, y in sampled_neg)
             else:
                 raise ValueError(
                     f"No background voxels found in the selected slice {slice_idx} for negative point sampling."
-                )
+                )       
+
         
     return tuple(sampled_slice_idx_pos), tuple(sampled_slice_idx_neg)

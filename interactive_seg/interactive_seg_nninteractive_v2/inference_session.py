@@ -143,22 +143,23 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
             # Update the output array (binary mask) for the current label
             output[self.model.target_buffer.view(np.bool_)] = label  # Use boolean indexing
 
+            # Reset model interactions for the next label to ensure that prompts for different labels do not interfere with each other
+            self.reset_interactions()
+
         # Store the final output in the predictor's target buffer
         self._output = output
             
+    def reset_interactions(self) -> None:
+        """
+        Reset the interactions in the model, clearing any previously added prompts (points, bounding boxes, scribbles) and clearing the model's target buffer for the current inference session. This is useful when the user wants to switch to a different label or set of prompts for the same input image on the current inference session. The inference session current input image, output and inference time dictionary remain unchanged, allowing for a fresh start for the next set of prompts without affecting the current session's state.
+        """
+        self.model.reset_interactions()
+                
     def reset_session(self) -> None:
         """
-        Reset the session which clears the model's internal state, including any previous interactions and predictions. This is useful when the user wants to start a new inference session with the same input image but different prompts or labels. The function also clears the output buffer and the inference time dictionary to ensure a clean state for the next inference session.
+        Reset the current session and clear the model's internal state, including the input image, output buffer, and inference time dictionary. This is useful when the user wants to start a completely new inference session with a different input image. The function ensures that the model's internal state is cleared, allowing for a fresh start for the next set of prompts and labels.
         """
         self.model.reset_session()
-        self._output = None
-        self._inference_time_per_label.clear()  
-    
-    def reset(self) -> None:
-        """
-        Reset the session and clear the input image and output buffer. This is useful when the user wants to start a completely new inference session with a different input image. The function also clears the inference time dictionary to ensure a clean state for the next inference session.
-        """
-        self.reset_session()
         self.input_image = None
         self._output = None
-        self._inference_time_per_label.clear()  
+        self._inference_time_per_label.clear()

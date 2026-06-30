@@ -86,7 +86,8 @@ def generate_nninteractive_prompts(
                 num_pts_pos=config.prompt_generation_config.num_pts_pos,
                 num_pts_neg=config.prompt_generation_config.num_pts_neg, 
                 num_slices=config.prompt_generation_config.num_slices_pts, 
-                dilation_iter_pts_neg=config.prompt_generation_config.dilation_iter_pts_neg, # Ignored if num_pts_neg is 0
+                dilation_iter_pts_neg=config.prompt_generation_config.dilation_iter_pts_neg, 
+                alpha_sampling_pts=config.prompt_generation_config.alpha_sampling_pts,  
                 rng=rng
             )
             if pts_pos:
