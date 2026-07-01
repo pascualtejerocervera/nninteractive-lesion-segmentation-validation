@@ -11,10 +11,7 @@ class EvaluationModelRunConfig(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(
-        description="Human-readable model name used in the CSV output.",
-    )
+    
     config_path: str = Field(
         description="Path to the model configuration file.",
     )

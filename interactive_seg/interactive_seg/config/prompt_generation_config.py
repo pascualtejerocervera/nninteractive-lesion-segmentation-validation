@@ -54,11 +54,6 @@ class NNInteractivePromptGenerationConfig(BaseModel):
         ge=1,
         description="Number of slices to consider for point prompting"
     )
-    dilation_iter_pts_neg: int = Field(
-        default=3,
-        ge=1,
-        description="Number of dilation iterations to apply to the positive mask when generating negative point prompts (to ensure separation from the lesion)"
-    )
     alpha_sampling_pts: float = Field(
         default=1.0,
         ge=0.0,

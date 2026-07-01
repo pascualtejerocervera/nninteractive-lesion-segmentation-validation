@@ -9,7 +9,6 @@ def generate_pts_prompts(
     num_pts_pos: int = 0,
     num_pts_neg: int = 0,
     num_slices: int = 1,
-    dilation_iter_pts_neg: int = 3,
     alpha_sampling_pts: float = 0.0,
     rng: np.random.Generator | None = None,
 ) -> tuple[tuple[float, float, float], ...]:
@@ -22,21 +21,17 @@ def generate_pts_prompts(
     by dilating the foreground mask and inverting the result.
 
     Args:
-        pos_mask: Binary 3D mask of shape ``(H, W, D)`` where foreground voxels
-            are represented by ``True`` (or ``1``) and background voxels by
-            ``False`` (or ``0``).
-        num_pts_pos: Number of positive points to sample per selected slice.
-        num_pts_neg: Number of negative points to sample per selected slice.
-        dilation_iter_pts_neg: Number of binary dilation iterations used to
-            create the negative sampling region from the foreground mask.
-        num_slices: Number of axial slices to sample from the foreground
-            extent of the mask.
-        dilation_iter_pts_neg: Number of binary dilation iterations used to
-            create the negative sampling region from the foreground mask.
-        alpha_sampling_pts: Exponent for distance transform-based sampling of
-            point prompts. Higher values bias points towards the center of the lesion. Lower values allow more uniform sampling across the lesion (uniform sampling corresponds to alpha=0 which means no bias, so points are randomly sampled from the lesion mask).
-        rng: NumPy random number generator. If ``None``, a new generator is
-            created via ``np.random.default_rng()``.
+        pos_mask: 3D binary mask of the foreground region.
+        neg_mask: 3D binary mask of the background region.
+        num_pts_pos: Number of positive points to generate.
+        num_pts_neg: Number of negative points to generate.
+        num_slices: Number of slices to sample along the axial direction.
+        alpha_sampling_pts: Exponent for the distance transform used in
+            sampling points. Higher values bias sampling towards the center
+            of the mask. If alpha=0, sampling is uniform and alpha>0 biases
+            towards the center.
+        rng: Random number generator for reproducibility. If None, a new
+            generator is created.
 
     Returns:
         A tuple ``(positive_points, negative_points)`` where each element is
@@ -71,8 +66,6 @@ def generate_pts_prompts(
         raise ValueError("Number of positive or negative points to generate must be greater than zero.")
     if num_slices <= 0:
         raise ValueError("Number of slices to sample must be greater than zero.")
-    if dilation_iter_pts_neg < 1:
-        raise ValueError("Number of dilation iterations for negative point generation must be at least 1.")
 
     # Create a random generator if not provided
     if rng is None:

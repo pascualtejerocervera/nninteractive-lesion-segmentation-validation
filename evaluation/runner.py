@@ -173,6 +173,11 @@ class EvaluationRunner:
         # any), so resuming doesn't discard prior results when we rewrite
         # the CSV at the end.
         rows: list[EvaluationRow] = self._load_existing_rows(self.output_csv)
+        
+        # If the last row contains an error, remove it so we can re-run that sample and potentially recover from the error.
+        if rows and rows[-1].status == "error":
+            print(f"Removing last error row for sample {rows[-1].sample_id} to allow re-evaluation.")
+            rows.pop()
 
         # Resolve which dataset config files to evaluate against (supports
         # evaluating against "all" known dataset configs).
@@ -185,6 +190,11 @@ class EvaluationRunner:
             dataset_name = self._dataset_name(dataset_config_path)
             dataset = build_dataset(dataset_config_path)
 
+            self._save_yaml_file(
+                path=self.output_path / "dataset_configs" / f"{dataset_name}.yaml",
+                data=self._load_yaml_file(dataset_config_path),
+            )
+
             for model_run in self.config.model_runs:
                 try:
                     self._run_model_on_dataset(
@@ -194,32 +204,11 @@ class EvaluationRunner:
                         rows=rows,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    # Catch-all for failures not already handled per-sample
-                    # inside _run_model_on_dataset (e.g. predictor setup).
-                    rows.append(
-                        EvaluationRow(
-                            dataset_name=dataset_name,
-                            model_name=model_run.name,
-                            sample_id="N/A",
-                            sample_index=-1,
-                            label=None,
-                            status="error",
-                            inference_seconds=None,
-                            dice_score=None,
-                            hd95=None,
-                            hd99=None,
-                            avg_dist_gt_to_pred=None,
-                            avg_dist_pred_to_gt=None,
-                            sample_img_path=None,
-                            sample_gt_path=None,
-                            sample_pred_path=None,
-                            sample_prompts_path=None,
-                            error_message=str(exc),
-                        )
-                    )
                     if not self.config.continue_on_error:
+                        # If we're not continuing on error, re-raise the exception
+                        # after writing out whatever results were gathered so far.
                         self._write_csv(self.output_csv, rows)
-                        raise
+                        raise exc
 
         # Always persist whatever results were gathered, even partial ones.
         self._write_csv(self.output_csv, rows)
@@ -261,14 +250,18 @@ class EvaluationRunner:
         # Load the model's YAML config and split it into the pieces needed
         # for building the predictor and generating prompts.
         config = self._load_yaml_file(Path(model_run.config_path))
-        self._save_yaml_file(
-            path=self.output_path / f"{model_run.name}_config.yaml",
-            data=config,
-        )
+        model_name = config["model_config"]["model_name"]
         model_config = config["model_config"]
         prompt_config = config["prompt_generation"]
 
-        predictor = build_predictor(model_run.name, model_config)
+        # Save the model config used for this run to the output directory, so it can be referenced later.
+        self._save_yaml_file(
+            path=self.output_path / "model_configs" / f"{Path(model_run.config_path).stem}.yaml",
+            data=config,
+        )
+
+        # Build the predictor for this model run, which will be used to run inference on each sample in the dataset.
+        predictor = build_predictor(model_name, model_config)
 
         # Build a set of (dataset, model, sample_id) keys already marked
         # "ok" in the rows accumulated so far (including rows loaded from
@@ -281,18 +274,29 @@ class EvaluationRunner:
         }
 
         for sample_index in range(len(dataset)):
+            # Extract the sample data and metadata for the current index.
             sample = dataset[sample_index]
             meta = sample["meta"]
             sample_id = str(meta["case_id"])
 
+            # Initialize variables for the prediction, inference time, and prompts for this sample
+            prediction = None
+            inference_time_per_label = None
+            prompts = None
+
             # Check if the sample was already evaluated in a previous run.
-            if (dataset_name, model_run.name, sample_id) in processed_keys:
-                print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_run.name}.")
+            if (dataset_name, model_name, sample_id) in processed_keys:
+                print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
                 continue
 
             try:
+                # Extract the image and ground truth mask from the sample
                 image = sample["image"]
                 target = sample["mask"]
+                labels = self._labels(target) # Unique non-zero label values in the ground truth mask
+                if not labels:
+                    print(f"Sample {sample_id} has no foreground labels in the ground truth mask; skipping metric computation.")
+                    continue
 
                 # Generate interactive segmentation prompts (e.g. clicks,
                 # bounding boxes) derived from the ground-truth mask.
@@ -302,17 +306,13 @@ class EvaluationRunner:
                     mask=target,
                 )
 
+                # Set the input image for the predictor, which will be used for inference.
                 predictor.set_image(image)
 
-                # Run the model using the generated prompts; no explicit
-                # label filtering is applied here.
+                # Run the model using the generated prompts for all the labels in the ground truth mask, and measure inference time per label if available.
                 predictor.run(prompts_dict=prompts, labels=None)
                 prediction = predictor.output
                 inference_time_per_label = predictor.inference_time_per_label.copy() if predictor.inference_time_per_label else None
-
-                # Determine which non-background label values are present
-                # in the ground truth, so metrics are computed per label.
-                labels = self._labels(target)
 
                 # Reset predictor state so the next sample starts clean.
                 predictor.reset_session()
@@ -321,7 +321,7 @@ class EvaluationRunner:
                     prediction_path = (
                         self.results_dir
                         / dataset_name
-                        / model_run.name
+                        / model_name
                         / self._safe_name(sample_id)
                         / f"{self._safe_name(sample_id)}_pred.nii.gz"
                     )
@@ -350,7 +350,7 @@ class EvaluationRunner:
                     prompts_path = (
                         self.results_dir
                         / dataset_name
-                        / model_run.name
+                        / model_name
                         / self._safe_name(sample_id)
                         / f"{self._safe_name(sample_id)}_prompts"
                     )
@@ -384,7 +384,7 @@ class EvaluationRunner:
                     rows.append(
                         EvaluationRow(
                             dataset_name=dataset_name,
-                            model_name=model_run.name,
+                            model_name=model_name,
                             sample_id=sample_id,
                             sample_index=sample_index,
                             label=label,
@@ -397,8 +397,8 @@ class EvaluationRunner:
                             avg_dist_pred_to_gt=metrics["avg_surface_dist_pred_to_gt"],
                             sample_gt_path=str(sample["meta"]["mask_path"]),
                             sample_img_path=str(sample["meta"]["image_path"]),
-                            sample_pred_path=str(prediction_path) if self.config.save_predictions else None,
-                            sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts else None,
+                            sample_pred_path=str(prediction_path) if self.config.save_predictions and prediction is not None else None,
+                            sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts and prompts is not None else None,
                             error_message=None,
                         )
                     )
@@ -406,13 +406,14 @@ class EvaluationRunner:
                 del tmp_pred, tmp_gt  # Clear temporary masks at the end of processing for this sample to free memory.
 
             except Exception as exc:  # noqa: BLE001
+
                 # Record the failure for this specific sample and either
                 # continue to the next sample or propagate, depending on
                 # configuration.
                 rows.append(
                     EvaluationRow(
                         dataset_name=dataset_name,
-                        model_name=model_run.name,
+                        model_name=model_name,
                         sample_id=sample_id,
                         sample_index=sample_index,
                         label=None,
@@ -425,8 +426,8 @@ class EvaluationRunner:
                         avg_dist_pred_to_gt=None,
                         sample_img_path=str(sample["meta"]["image_path"]),
                         sample_gt_path=str(sample["meta"]["mask_path"]),
-                        sample_pred_path=None,
-                        sample_prompts_path=None,
+                        sample_pred_path=str(prediction_path) if self.config.save_predictions and prediction is not None else None,
+                        sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts and prompts is not None else None,
                         error_message=str(exc),
                     )
                 )
@@ -474,7 +475,7 @@ class EvaluationRunner:
             A list of unique non-zero integer label values found in the mask.
         """
         return [int(value) for value in np.unique(mask) if int(value) != 0]
-
+    
     @classmethod
     def _write_csv(cls, output_csv: Path, rows: list[EvaluationRow]) -> None:
         """Writes evaluation rows to a CSV file.
@@ -486,15 +487,14 @@ class EvaluationRunner:
                 CSV row, in order.
         """
         # encoding="utf-8-sig" adds a UTF-8 BOM so Excel detects the file as
-        # UTF-8 instead of misreading accented characters. delimiter=";" is
-        # used instead of "," because Excel's default list separator in most
-        # European locales (incl. NL) is a semicolon; with a comma-delimited
-        # file, double-clicking to open in Excel collapses everything into a
-        # single column. Importing via Excel's "Data > From Text/CSV" wizard
-        # with comma selected manually would also work, but ";" makes plain
-        # double-click opening work out of the box.
+        # UTF-8 and correctly displays accented characters. The "sep=,"
+        # directive on the first line tells Excel to use "," as the
+        # delimiter regardless of the user's regional settings, ensuring
+        # values with a "." decimal (e.g. 1.1245) are read correctly
+        # instead of being misinterpreted as 11245.
         with output_csv.open("w", newline="", encoding="utf-8-sig") as handle:
-            writer = csv.DictWriter(handle, fieldnames=cls.CSV_FIELDNAMES, delimiter=";")
+            handle.write("sep=,\n")
+            writer = csv.DictWriter(handle, fieldnames=cls.CSV_FIELDNAMES, delimiter=",")
             writer.writeheader()
             for row in rows:
                 writer.writerow(asdict(row))
@@ -519,7 +519,18 @@ class EvaluationRunner:
 
         rows: list[EvaluationRow] = []
         with output_csv.open("r", newline="", encoding="utf-8-sig") as handle:
-            for raw in csv.DictReader(handle, delimiter=";"):
+            # _write_csv prepends a "sep=," directive line (an Excel-only
+            # convention, not part of the CSV spec) so that double-clicking
+            # the file in Excel uses the correct delimiter regardless of
+            # locale. csv.DictReader has no knowledge of this convention and
+            # would otherwise treat "sep=," as the header row, so it must be
+            # skipped explicitly before handing the stream to DictReader.
+            first_line_pos = handle.tell()
+            first_line = handle.readline()
+            if not first_line.startswith("sep="):
+                handle.seek(first_line_pos)
+
+            for raw in csv.DictReader(handle, delimiter=","):
                 rows.append(
                     EvaluationRow(
                         dataset_name=raw["dataset_name"],

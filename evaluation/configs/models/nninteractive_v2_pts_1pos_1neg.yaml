@@ -1,6 +1,6 @@
 model_config:
-  model_name: nninteractive_v1
-  model_version: v1
+  model_name: nninteractive_v2
+  model_version: v2
   device: null
   sync_device: true
   use_memory: true
@@ -16,7 +16,6 @@ prompt_generation:
     num_pts_pos: 1
     num_pts_neg: 1
     num_slices_pts: 1
-    dilation_iter_pts_neg: 3
     alpha_sampling_pts: 1.0
 
     num_bbox_pos: 0
@@ -35,9 +34,9 @@ prompt_generation:
       bbox_jitter_std: 0.0
 
   crop_roi_config:
-    enable: false
+    enable: true
     margin_mode: absolute
-    margin: 5
+    margin: 10
     fraction: 0.3333
     min_margin: 5
     max_margin: 64
