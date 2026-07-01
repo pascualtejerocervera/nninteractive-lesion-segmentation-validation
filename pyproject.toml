@@ -8,16 +8,7 @@ version = "0.1.0"
 description = "Validation framework for evaluating nnInteractive on 3D CT lesion segmentation without retraining"
 readme = "README.md"
 requires-python = ">=3.10"
-
-dependencies = [
-    "nnInteractive_v1",
-    "nnInteractive_v2",
-    "surface-distance",
-    "numpy>=2.0",
-    "scipy>=1.10",
-    "scikit-image>=0.21",
-    "nibabel>=5.0",
-]
+dynamic = ["dependencies"]
 
 [project.optional-dependencies]
 dev = [
@@ -26,11 +17,6 @@ dev = [
     "ruff",
     "ipython",
 ]
-
-[tool.uv.sources]
-"nnInteractive_v1" = { path = "models/nninteractive_v1", editable = true }
-"nnInteractive_v2" = { path = "models/nninteractive_v2", editable = true }
-"surface-distance" = { git = "https://github.com/google-deepmind/surface-distance.git" }
 
 [tool.setuptools]
 package-dir = {"" = "."}
