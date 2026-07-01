@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 from dataclasses import asdict, dataclass
 import yaml
-from time import perf_counter
 from pathlib import Path
 from typing import Any
 

@@ -13,7 +13,7 @@ dependencies = [
     "nnInteractive_v1",
     "nnInteractive_v2",
     "surface-distance",
-    "numpy>=1.24",
+    "numpy>=2.0",
     "scipy>=1.10",
     "scikit-image>=0.21",
     "nibabel>=5.0",
