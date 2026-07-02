@@ -100,15 +100,13 @@ def main(argv: list[str] | None = None) -> int:
         _resolve_run_config(raw_config, args.config.parent.parent)
     )
 
-    rows = EvaluationRunner(
+    evalutation_runner = EvaluationRunner(
         config_path=args.config,
         config=config,
-    ).run()
-
-    print(
-        f"Wrote {len(rows)} rows to "
-        f"{Path(config.output_path).expanduser().resolve()}"
     )
+    evalutation_runner.run()
+
+    print(f"Evaluation run completed. Results written to {config.output_path}.")
     return 0
     
 

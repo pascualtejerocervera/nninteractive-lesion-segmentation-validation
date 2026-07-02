@@ -172,7 +172,7 @@ class EvaluationRunner:
             data=self.config.model_dump(),
         )
 
-    def run(self) -> int:
+    def run(self) -> None:
         """Executes the evaluation process for the specified datasets and model runs.
 
         For each resolved dataset config, the dataset is built and then
@@ -188,10 +188,6 @@ class EvaluationRunner:
         lightweight set of keys (see ``_prepare_resume_state``) rather than
         loading the full prior result set into memory.
 
-        Returns:
-            The total number of rows now present in the results CSV
-            (pre-existing rows plus any newly written in this call).
-
         Raises:
             Exception: Re-raises the first encountered exception if
                 ``self.config.continue_on_error`` is False.
@@ -205,7 +201,6 @@ class EvaluationRunner:
             all_configs=self.config.dataset == "all",
         )
 
-        new_row_count = 0
         with self._csv_row_writer(self.output_csv, write_header=write_header) as write_row:
             for dataset_config_path in dataset_configs:
                 dataset_name = self._dataset_name(dataset_config_path)
@@ -218,7 +213,7 @@ class EvaluationRunner:
 
                 for model_run in self.config.model_runs:
                     try:
-                        new_row_count += self._run_model_on_dataset(
+                        self._run_model_on_dataset(
                             dataset=dataset,
                             dataset_name=dataset_name,
                             model_run=model_run,
@@ -235,8 +230,6 @@ class EvaluationRunner:
                 del dataset
                 gc.collect()
 
-        return existing_row_count + new_row_count
-
     def _run_model_on_dataset(
         self,
         dataset: Any,
@@ -244,7 +237,7 @@ class EvaluationRunner:
         model_run: EvaluationModelRunConfig,
         write_row: Callable[[EvaluationRow], None],
         processed_keys: set[SampleKey],
-    ) -> int:
+    ) -> None:
         """Evaluates a single model run against every sample in a dataset.
 
         Loads the model's YAML config, builds the predictor, then iterates
@@ -270,9 +263,6 @@ class EvaluationRunner:
                 earlier in this run); samples matching a key are skipped.
                 Mutated in place to add newly-completed samples.
 
-        Returns:
-            The number of new rows written during this call.
-
         Raises:
             Exception: Re-raised for a given sample if
                 ``self.config.continue_on_error`` is False, after the error
@@ -296,7 +286,6 @@ class EvaluationRunner:
 
         # Build the predictor for this model run, which will be used to run inference on each sample in the dataset.
         predictor = build_predictor(model_name, model_config)
-        rows_written = 0
         n_samples = len(dataset)
 
         try:
@@ -306,10 +295,9 @@ class EvaluationRunner:
                 sample_id = str(meta["case_id"])
 
                 # Check if the sample was already evaluated in a previous run.
-                if (dataset_name, model_name, sample_id) in processed_keys:
-                    print(f"Sample {sample_index}/{n_samples}: Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
-                    del sample
-                    continue
+                if (model_run_name, dataset_name, model_name, sample_id) in processed_keys:
+                    print(f"Sample {sample_index}/{n_samples}: Model run \"{model_run_name}\": Skipping sample {sample_id} for dataset {dataset_name} and model {model_name} (already completed in a prior run).")
+                    break
 
                 # Initialize variables for the large per-sample objects up
                 # front (and to None) so the `finally` cleanup below is safe
@@ -434,7 +422,6 @@ class EvaluationRunner:
                                 error_message=None,
                             )
                         )
-                        rows_written += 1
 
                     processed_keys.add((dataset_name, model_name, sample_id))
                     print(f"Sample {sample_index}/{n_samples}: Model run \"{model_run_name}\": Completed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
@@ -469,7 +456,6 @@ class EvaluationRunner:
                             error_message=str(exc),
                         )
                     )
-                    rows_written += 1
 
                     print(f"Sample {sample_index}/{n_samples}: Model run \"{model_run_name}\": Error processing sample {sample_id} for dataset {dataset_name} and model {model_name}: {exc}")
 
@@ -494,7 +480,7 @@ class EvaluationRunner:
             # reset for the last sample (e.g. it raised before getting there).
             predictor.reset_session()
 
-        return rows_written
+        print(f"Model run \"{model_run_name}\": Completed evaluation of {n_samples} samples for dataset {dataset_name} and model {model_name}.")
 
     @staticmethod
     def _load_yaml_file(path: Path) -> dict[str, Any]:
@@ -578,7 +564,7 @@ class EvaluationRunner:
         """Recovers resume state from a prior run without loading it fully into memory.
 
         Streams through an existing results CSV (if any) to collect the set
-        of (dataset_name, model_name, sample_id) keys that completed
+        of (model_run_name, dataset_name, model_name, sample_id) keys that completed
         successfully ("ok") in a prior, possibly interrupted run. Only that
         small set of string tuples is kept in memory — not the full
         ``EvaluationRow`` data for every prior row.
@@ -594,7 +580,7 @@ class EvaluationRunner:
             output_csv: Path to a previous run's results CSV, if any.
 
         Returns:
-            The set of (dataset_name, model_name, sample_id) keys that
+            The set of (model_run_name, dataset_name, model_name, sample_id) keys that
             completed successfully in a prior run and can be skipped.
         """
         if not output_csv.exists():
@@ -607,7 +593,7 @@ class EvaluationRunner:
         with output_csv.open("r", newline="", encoding="utf-8-sig") as handle:
             cls._skip_sep_line(handle)
             for raw in csv.DictReader(handle, delimiter=","):
-                key = (raw["dataset_name"], raw["model_name"], raw["sample_id"])
+                key = (raw["model_run_name"], raw["dataset_name"], raw["model_name"], raw["sample_id"])
                 if raw["status"] == "ok":
                     processed_keys.add(key)
                 last_key, last_status = key, raw["status"]
@@ -615,7 +601,7 @@ class EvaluationRunner:
         if last_status != "error" or last_key is None:
             return processed_keys
 
-        print(f"Model run \"{last_key[1]}\": Last row in {output_csv} was an error for sample {last_key[2]} in dataset {last_key[0]}; dropping the row for that sample so it can be retried cleanly.")
+        print(f"Model run \"{last_key[0]}\": Last row in {output_csv} was an error for model_run_name={last_key[0]}, dataset_name={last_key[1]}, model_name={last_key[2]}, sample_id={last_key[3]}. Dropping all rows for that sample so it can be retried cleanly.")
         processed_keys.discard(last_key)
 
         tmp_path = output_csv.with_suffix(output_csv.suffix + ".tmp")
@@ -628,7 +614,7 @@ class EvaluationRunner:
             writer = csv.DictWriter(dst, fieldnames=cls.CSV_FIELDNAMES, delimiter=",")
             writer.writeheader()
             for raw in csv.DictReader(src, delimiter=","):
-                key = (raw["dataset_name"], raw["model_name"], raw["sample_id"])
+                key = (raw["model_run_name"], raw["dataset_name"], raw["model_name"], raw["sample_id"])
                 if key == last_key:
                     continue
                 writer.writerow(raw)
