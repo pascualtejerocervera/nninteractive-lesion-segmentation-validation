@@ -280,6 +280,7 @@ class EvaluationRunner:
         """
         # Load the model's YAML config and split it into the pieces needed
         # for building the predictor and generating prompts.
+
         config_path = Path(model_run.config_path).expanduser().resolve()
         config = self._load_yaml_file(config_path)
         model_name = config["model_config"]["model_name"]
@@ -296,17 +297,17 @@ class EvaluationRunner:
         # Build the predictor for this model run, which will be used to run inference on each sample in the dataset.
         predictor = build_predictor(model_name, model_config)
         rows_written = 0
+        n_samples = len(dataset)
 
         try:
-            for sample_index in range(len(dataset)):
+            for sample_index, sample in enumerate(dataset, start=1):
                 # Extract the sample data and metadata for the current index.
-                sample = dataset[sample_index]
                 meta = sample["meta"]
                 sample_id = str(meta["case_id"])
 
                 # Check if the sample was already evaluated in a previous run.
                 if (dataset_name, model_name, sample_id) in processed_keys:
-                    print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
+                    print(f"Sample {sample_index}/{n_samples}: Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
                     del sample
                     continue
 
@@ -327,7 +328,7 @@ class EvaluationRunner:
                     target = sample["mask"]
                     labels = self._labels(target)  # Unique non-zero label values in the ground truth mask
                     if not labels:
-                        print(f"Sample {sample_id} has no foreground labels in the ground truth mask; skipping metric computation.")
+                        print(f"Sample {sample_index}/{n_samples}: Sample {sample_id} has no foreground labels in the ground truth mask; skipping evaluation for this sample.")
                         continue
 
                     # Generate interactive segmentation prompts (e.g. clicks,
@@ -436,7 +437,7 @@ class EvaluationRunner:
                         rows_written += 1
 
                     processed_keys.add((dataset_name, model_name, sample_id))
-                    print(f"Model run \"{model_run_name}\": Completed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
+                    print(f"Sample {sample_index}/{n_samples}: Model run \"{model_run_name}\": Completed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
 
                     # Clear the per-label scratch buffers now that we're
                     # done with them for this sample.
@@ -469,6 +470,9 @@ class EvaluationRunner:
                         )
                     )
                     rows_written += 1
+
+                    print(f"Sample {sample_index}/{n_samples}: Model run \"{model_run_name}\": Error processing sample {sample_id} for dataset {dataset_name} and model {model_name}: {exc}")
+
                     if not self.config.continue_on_error:
                         raise
                 finally:
