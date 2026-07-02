@@ -72,6 +72,7 @@ def _resolve_run_config(raw_config: dict[str, Any], base_dir: Path) -> dict[str,
     model_runs: list[dict[str, Any]] = []
     for model_run in resolved.get("model_runs", []):
         item = dict(model_run)
+        item["model_run_name"] = item.pop("name")
         item["config_path"] = str(Path(base_dir / item["config_path"]).resolve())
         model_runs.append(item)
 

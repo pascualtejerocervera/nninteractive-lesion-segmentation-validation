@@ -2,14 +2,30 @@ experiment_name: default_experiment
 dataset: longitudinal_ct
 
 model_runs:
-    - config_path: configs/models/nninteractive_v1_bbox_1pos.yaml
-    - config_path: configs/models/nninteractive_v1_pts_1pos_1neg.yaml
-    - config_path: configs/models/nninteractive_v1_scribble_diameter_ann.yaml
-    - config_path: configs/models/nninteractive_v1_scribble_spline.yaml
-    - config_path: configs/models/nninteractive_v2_bbox_1pos.yaml
-    - config_path: configs/models/nninteractive_v2_pts_1pos_1neg.yaml
-    - config_path: configs/models/nninteractive_v2_scribble_diameter_ann.yaml
-    - config_path: configs/models/nninteractive_v2_scribble_spline.yaml
+    - name: nninteractive_v2_bbox_1pos
+      config_path: configs/models/nninteractive_v2_bbox_1pos.yaml
+
+    - name: nninteractive_v2_pts_1pos_1neg    
+      config_path: configs/models/nninteractive_v2_pts_1pos_1neg.yaml
+
+    - name: nninteractive_v2_scribble_diameter_ann
+      config_path: configs/models/nninteractive_v2_scribble_diameter_ann.yaml
+
+    - name: nninteractive_v2_scribble_spline
+      config_path: configs/models/nninteractive_v2_scribble_spline.yaml
+
+    - name: nninteractive_v1_bbox_1pos
+      config_path: configs/models/nninteractive_v1_bbox_1pos.yaml
+
+    - name: nninteractive_v1_pts_1pos_1neg
+      config_path: configs/models/nninteractive_v1_pts_1pos_1neg.yaml
+
+    - name: nninteractive_v1_scribble_diameter_ann
+      config_path: configs/models/nninteractive_v1_scribble_diameter_ann.yaml
+      
+    - name: nninteractive_v1_scribble_spline
+      config_path: configs/models/nninteractive_v1_scribble_spline.yaml
+
 
 output_path: null
 save_predictions: true

@@ -5,4 +5,4 @@
 [submodule "models/nninteractive_v2"]
 	path = models/nninteractive_v2
 	url = https://github.com/pascualtejerocervera/nnInteractive.git
-	branch = nninteractive_v2.4.2
+	branch = nninteractive_v2.5.0

@@ -11,7 +11,11 @@ class EvaluationModelRunConfig(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-    
+
+    model_run_name: str = Field(
+        description="Unique name for this model run, used for organizing results.",
+    )
+
     config_path: str = Field(
         description="Path to the model configuration file.",
     )

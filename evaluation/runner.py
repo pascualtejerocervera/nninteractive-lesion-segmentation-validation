@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import csv
+import gc
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-import yaml
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import numpy as np
+import yaml
 
 from datasets import build_dataset
 from evaluation.config import EvaluationModelRunConfig, EvaluationRunConfig
@@ -16,6 +18,12 @@ from evaluation.predictor_factory import build_predictor
 from interactive_seg import generate_nninteractive_prompts
 from interactive_seg.io.image_io import save_nifti_image
 from interactive_seg.io.prompt_io import save_prompts_dict
+
+# Key identifying a single (dataset, model, sample) combination, used for
+# resume/dedup bookkeeping. Kept as a plain tuple of strings (rather than a
+# full EvaluationRow) so the resume state stays cheap to hold in memory even
+# for runs with a very large number of prior results.
+SampleKey = tuple[str, str, str]
 
 
 @dataclass(slots=True)
@@ -28,8 +36,9 @@ class EvaluationRow:
     most metric fields left as ``None``.
 
     Attributes:
+        model_run_name: Name of the model run (taken from the stem of the model config file path) used for this evaluation.
         dataset_name: Human-readable name of the dataset.
-        model_name: Name of the model run (from the evaluation config).
+        model_name: Name of the model (from the evaluation config).
         sample_id: Unique identifier for the sample (e.g. case ID).
         sample_index: Index of the sample within the dataset.
         label: The integer label value for which metrics were computed.
@@ -59,6 +68,7 @@ class EvaluationRow:
         error_message: Error message if an error occurred for this sample/dataset/model combination.
             None if no error occurred.
     """
+    model_run_name: str
     dataset_name: str
     model_name: str
     sample_id: str
@@ -77,6 +87,7 @@ class EvaluationRow:
     sample_prompts_path: str | None = None
     error_message: str | None = None
 
+
 class EvaluationRunner:
     """Runs evaluation of one or more models against one or more datasets.
 
@@ -84,13 +95,22 @@ class EvaluationRunner:
     dataset, evaluates every configured model run. For every sample in a
     dataset it generates interactive segmentation prompts, runs the model,
     computes metrics per label value, and optionally saves the predicted
-    segmentation to disk. Results are collected into ``EvaluationRow``
-    instances and written out to a CSV file.
+    segmentation to disk.
+
+    Memory behavior: result rows are streamed straight to the output CSV as
+    they're produced (flushed immediately) rather than accumulated in an
+    in-memory list for the whole run. Resume state from a prior, possibly
+    interrupted run is likewise kept as a small set of
+    ``(dataset, model, sample_id)`` keys rather than fully materialized
+    ``EvaluationRow`` objects. This keeps peak memory roughly bounded by the
+    volumes of the sample currently being processed, instead of growing with
+    the total number of results produced over the run.
     """
 
     # Column order used when writing results.csv. Note this intentionally
     # excludes "model_config_path" even though it exists on EvaluationRow.
     CSV_FIELDNAMES = [
+        "model_run_name",
         "dataset_name",
         "model_name",
         "sample_id",
@@ -110,8 +130,15 @@ class EvaluationRunner:
         "error_message",
     ]
 
+    # How many samples to process between forced gc.collect() calls. This
+    # doesn't change correctness; it just gives the allocator a chance to
+    # actually release freed numpy buffers (which can otherwise linger due
+    # to reference cycles created by exception tracebacks) back to the OS
+    # sooner rather than later.
+    GC_EVERY_N_SAMPLES = 5
+
     def __init__(
-        self, 
+        self,
         config_path: Path | str,
         config: EvaluationRunConfig
     ) -> None:
@@ -145,88 +172,88 @@ class EvaluationRunner:
             data=self.config.model_dump(),
         )
 
-
-    def run(self) -> list[EvaluationRow]:
+    def run(self) -> int:
         """Executes the evaluation process for the specified datasets and model runs.
 
         For each resolved dataset config, the dataset is built and then
         evaluated against every configured model run. Failures while
-        building a dataset or running a model are recorded as error rows.
-        If ``continue_on_error`` is False on the config, the first error
-        encountered will be raised after writing out the results collected
-        so far.
+        building a dataset or running a model propagate after the current
+        results have been flushed to disk, if ``continue_on_error`` is
+        False on the config.
 
-        Any rows already present in an existing results CSV (from a prior,
-        possibly interrupted run) are loaded up front, so re-running the
-        evaluation does not lose previously computed results.
+        Result rows are streamed directly to the results CSV as they're
+        computed (see ``_csv_row_writer``), so a crash or interruption never
+        loses more than the row currently in flight. Resume state from any
+        prior run present at ``self.output_csv`` is recovered up front as a
+        lightweight set of keys (see ``_prepare_resume_state``) rather than
+        loading the full prior result set into memory.
 
         Returns:
-            A list of EvaluationRow instances containing the results of the
-            evaluation (including any error rows).
+            The total number of rows now present in the results CSV
+            (pre-existing rows plus any newly written in this call).
 
         Raises:
             Exception: Re-raises the first encountered exception if
                 ``self.config.continue_on_error`` is False.
         """
-        # Start from whatever was already persisted in a previous run (if
-        # any), so resuming doesn't discard prior results when we rewrite
-        # the CSV at the end.
-        rows: list[EvaluationRow] = self._load_existing_rows(self.output_csv)
-        
-        # If the last row contains an error, remove it so we can re-run that sample and potentially recover from the error.
-        if rows and rows[-1].status == "error":
-            print(f"Removing last error row for sample {rows[-1].sample_id} to allow re-evaluation.")
-            rows.pop()
+        processed_keys = self._prepare_resume_state(self.output_csv)
+        existing_row_count = self._count_csv_rows(self.output_csv)
+        write_header = existing_row_count == 0
 
-        # Resolve which dataset config files to evaluate against (supports
-        # evaluating against "all" known dataset configs).
         dataset_configs = resolve_requested_dataset_configs(
             self.config.dataset,
             all_configs=self.config.dataset == "all",
         )
 
-        for dataset_config_path in dataset_configs:
-            dataset_name = self._dataset_name(dataset_config_path)
-            dataset = build_dataset(dataset_config_path)
+        new_row_count = 0
+        with self._csv_row_writer(self.output_csv, write_header=write_header) as write_row:
+            for dataset_config_path in dataset_configs:
+                dataset_name = self._dataset_name(dataset_config_path)
+                dataset = build_dataset(dataset_config_path)
 
-            self._save_yaml_file(
-                path=self.output_path / "dataset_configs" / f"{dataset_name}.yaml",
-                data=self._load_yaml_file(dataset_config_path),
-            )
+                self._save_yaml_file(
+                    path=self.output_path / "dataset_configs" / f"{dataset_name}.yaml",
+                    data=self._load_yaml_file(dataset_config_path),
+                )
 
-            for model_run in self.config.model_runs:
-                try:
-                    self._run_model_on_dataset(
-                        dataset=dataset,
-                        dataset_name=dataset_name,
-                        model_run=model_run,
-                        rows=rows,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    if not self.config.continue_on_error:
-                        # If we're not continuing on error, re-raise the exception
-                        # after writing out whatever results were gathered so far.
-                        self._write_csv(self.output_csv, rows)
-                        raise exc
+                for model_run in self.config.model_runs:
+                    try:
+                        new_row_count += self._run_model_on_dataset(
+                            dataset=dataset,
+                            dataset_name=dataset_name,
+                            model_run=model_run,
+                            write_row=write_row,
+                            processed_keys=processed_keys,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        if not self.config.continue_on_error:
+                            raise exc
 
-        # Always persist whatever results were gathered, even partial ones.
-        self._write_csv(self.output_csv, rows)
-        return rows
+                # Drop the dataset object before moving on to the next one
+                # so any volumes it may be caching aren't held alongside
+                # the next dataset's.
+                del dataset
+                gc.collect()
+
+        return existing_row_count + new_row_count
 
     def _run_model_on_dataset(
         self,
         dataset: Any,
         dataset_name: str,
         model_run: EvaluationModelRunConfig,
-        rows: list[EvaluationRow],
-    ) -> None:
+        write_row: Callable[[EvaluationRow], None],
+        processed_keys: set[SampleKey],
+    ) -> int:
         """Evaluates a single model run against every sample in a dataset.
 
         Loads the model's YAML config, builds the predictor, then iterates
         over every sample in the dataset: generates prompts from the ground
         truth mask, runs the predictor, computes per-label metrics, and
-        optionally saves the predicted segmentation as a NIfTI file. Result
-        rows (success or per-sample error) are appended to ``rows`` in place.
+        optionally saves the predicted segmentation as a NIfTI file. Each
+        result row (success or per-sample error) is written to disk via
+        ``write_row`` as soon as it's produced, rather than being
+        accumulated.
 
         Args:
             dataset: The dataset object to iterate over (supports ``len()``
@@ -236,206 +263,234 @@ class EvaluationRunner:
                 labeling rows and naming saved prediction files.
             model_run: Configuration describing which model to run and
                 where to load its config from.
-            rows: The list of EvaluationRow results to append to. Mutated
-                in place so callers can observe partial progress on error.
-                May already contain rows loaded from a previous run; these
-                are used to determine which samples can be skipped.
+            write_row: Callable that appends a single EvaluationRow to the
+                results CSV and flushes it to disk immediately.
+            processed_keys: Set of (dataset_name, model_name, sample_id)
+                keys already completed successfully in a prior run (or
+                earlier in this run); samples matching a key are skipped.
+                Mutated in place to add newly-completed samples.
+
+        Returns:
+            The number of new rows written during this call.
 
         Raises:
             Exception: Re-raised for a given sample if
                 ``self.config.continue_on_error`` is False, after the error
-                row for that sample has already been recorded.
+                row for that sample has already been written.
         """
         # Load the model's YAML config and split it into the pieces needed
         # for building the predictor and generating prompts.
-        config = self._load_yaml_file(Path(model_run.config_path))
+        config_path = Path(model_run.config_path).expanduser().resolve()
+        config = self._load_yaml_file(config_path)
         model_name = config["model_config"]["model_name"]
         model_config = config["model_config"]
         prompt_config = config["prompt_generation"]
+        model_run_name = model_run.model_run_name
 
         # Save the model config used for this run to the output directory, so it can be referenced later.
         self._save_yaml_file(
-            path=self.output_path / "model_configs" / f"{Path(model_run.config_path).stem}.yaml",
+            path=self.output_path / "model_configs" / f"{config_path.stem}.yaml",
             data=config,
         )
 
         # Build the predictor for this model run, which will be used to run inference on each sample in the dataset.
         predictor = build_predictor(model_name, model_config)
+        rows_written = 0
 
-        # Build a set of (dataset, model, sample_id) keys already marked
-        # "ok" in the rows accumulated so far (including rows loaded from
-        # a previous run), so we can skip re-processing them. Computed once
-        # up front rather than re-scanning a CSV reader per sample.
-        processed_keys = {
-            (row.dataset_name, row.model_name, row.sample_id)
-            for row in rows
-            if row.status == "ok"
-        }
+        try:
+            for sample_index in range(len(dataset)):
+                # Extract the sample data and metadata for the current index.
+                sample = dataset[sample_index]
+                meta = sample["meta"]
+                sample_id = str(meta["case_id"])
 
-        for sample_index in range(len(dataset)):
-            # Extract the sample data and metadata for the current index.
-            sample = dataset[sample_index]
-            meta = sample["meta"]
-            sample_id = str(meta["case_id"])
-
-            # Initialize variables for the prediction, inference time, and prompts for this sample
-            prediction = None
-            inference_time_per_label = None
-            prompts = None
-
-            # Check if the sample was already evaluated in a previous run.
-            if (dataset_name, model_name, sample_id) in processed_keys:
-                print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
-                continue
-
-            try:
-                # Extract the image and ground truth mask from the sample
-                image = sample["image"]
-                target = sample["mask"]
-                labels = self._labels(target) # Unique non-zero label values in the ground truth mask
-                if not labels:
-                    print(f"Sample {sample_id} has no foreground labels in the ground truth mask; skipping metric computation.")
+                # Check if the sample was already evaluated in a previous run.
+                if (dataset_name, model_name, sample_id) in processed_keys:
+                    print(f"Skipping already processed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
+                    del sample
                     continue
 
-                # Generate interactive segmentation prompts (e.g. clicks,
-                # bounding boxes) derived from the ground-truth mask.
-                prompts = generate_nninteractive_prompts(
-                    config=prompt_config,
-                    model_config=model_config,
-                    mask=target,
-                )
+                # Initialize variables for the large per-sample objects up
+                # front (and to None) so the `finally` cleanup below is safe
+                # to run no matter how far this iteration got before failing.
+                image = None
+                target = None
+                prediction = None
+                prediction_path = None
+                prompts = None
+                prompts_path = None
+                inference_time_per_label = None
 
-                # Set the input image for the predictor, which will be used for inference.
-                predictor.set_image(image)
+                try:
+                    # Extract the image and ground truth mask from the sample
+                    image = sample["image"]
+                    target = sample["mask"]
+                    labels = self._labels(target)  # Unique non-zero label values in the ground truth mask
+                    # if not labels:
+                    #     print(f"Sample {sample_id} has no foreground labels in the ground truth mask; skipping metric computation.")
+                    #     continue
 
-                # Run the model using the generated prompts for all the labels in the ground truth mask, and measure inference time per label if available.
-                predictor.run(prompts_dict=prompts, labels=None)
-                prediction = predictor.output
-                inference_time_per_label = predictor.inference_time_per_label.copy() if predictor.inference_time_per_label else None
-
-                # Reset predictor state so the next sample starts clean.
-                predictor.reset_session()
-
-                if self.config.save_predictions:
-                    prediction_path = (
-                        self.results_dir
-                        / dataset_name
-                        / model_name
-                        / self._safe_name(sample_id)
-                        / f"{self._safe_name(sample_id)}_pred.nii.gz"
-                    )
-                    prediction_path.parent.mkdir(parents=True, exist_ok=True)
-                    save_nifti_image(
-                        image=image,
-                        affine=sample["meta"]["affine"],    
-                        header=sample["meta"]["header"],
-                        file_path=prediction_path.parent / f"{self._safe_name(sample_id)}_image.nii.gz",
-                    )
-                    save_nifti_image(
-                        image=target,
-                        affine=sample["meta"]["affine"],
-                        header=sample["meta"]["header"],
-                        file_path=prediction_path.parent / f"{self._safe_name(sample_id)}_gt.nii.gz",
-                    )
-                    save_nifti_image(
-                        image=prediction,
-                        affine=sample["meta"]["affine"],
-                        header=sample["meta"]["header"],
-                        file_path=prediction_path,
+                    # Generate interactive segmentation prompts (e.g. clicks,
+                    # bounding boxes) derived from the ground-truth mask.
+                    prompts = generate_nninteractive_prompts(
+                        config=prompt_config,
+                        model_config=model_config,
+                        mask=target,
                     )
 
+                    # Set the input image for the predictor, which will be used for inference.
+                    predictor.set_image(image)
 
-                if self.config.save_generated_prompts:
-                    prompts_path = (
-                        self.results_dir
-                        / dataset_name
-                        / model_name
-                        / self._safe_name(sample_id)
-                        / f"{self._safe_name(sample_id)}_prompts"
-                    )
-                    prompts_path.mkdir(parents=True, exist_ok=True)
-                    save_prompts_dict(
-                        prompts_dict=prompts,
-                        ref_affine=sample["meta"]["affine"],
-                        ref_header=sample["meta"]["header"],
-                        output_dir=prompts_path,
-                    )
+                    # Run the model using the generated prompts for all the labels in the ground truth mask, and measure inference time per label if available.
+                    predictor.run(prompts_dict=prompts, labels=None)
+                    prediction = predictor.output
+                    inference_time_per_label = predictor.inference_time_per_label.copy() if predictor.inference_time_per_label else None
 
-                # Create temporary storage for the binary mask of the current label during prompt processing.
-                tmp_pred = np.zeros_like(prediction, dtype=bool)
-                tmp_gt = np.zeros_like(target, dtype=bool)
+                    # Reset predictor state so the next sample starts clean.
+                    predictor.reset_session()
 
-                # Compute and record metrics separately for each label value
-                # found in the ground-truth mask.
-                for label in labels:
+                    if self.config.save_predictions:
+                        prediction_path = (
+                            self.results_dir
+                            / dataset_name
+                            / model_name
+                            / self._safe_name(sample_id)
+                            / f"{self._safe_name(sample_id)}_pred.nii.gz"
+                        )
+                        prediction_path.parent.mkdir(parents=True, exist_ok=True)
+                        save_nifti_image(
+                            image=image,
+                            affine=meta["affine"],
+                            header=meta["header"],
+                            file_path=prediction_path.parent / f"{self._safe_name(sample_id)}_image.nii.gz",
+                        )
+                        save_nifti_image(
+                            image=target,
+                            affine=meta["affine"],
+                            header=meta["header"],
+                            file_path=prediction_path.parent / f"{self._safe_name(sample_id)}_gt.nii.gz",
+                        )
+                        save_nifti_image(
+                            image=prediction,
+                            affine=meta["affine"],
+                            header=meta["header"],
+                            file_path=prediction_path,
+                        )
 
-                    # Compute metrics for the current label value, using the prediction and ground truth target, along with the voxel spacing from the image header.
-                    np.equal(prediction, label, out=tmp_pred)
-                    np.equal(target, label, out=tmp_gt)
-                    metrics = compute_surface_dist_metrics(
-                        prediction=tmp_pred,
-                        target=tmp_gt,
-                        space_mm=sample["meta"]["header"].get_zooms()
-                    )
-                    print(f"Computed metrics for sample {sample_id}, label {label}: {metrics}")
+                    if self.config.save_generated_prompts:
+                        prompts_path = (
+                            self.results_dir
+                            / dataset_name
+                            / model_name
+                            / self._safe_name(sample_id)
+                            / f"{self._safe_name(sample_id)}_prompts"
+                        )
+                        prompts_path.mkdir(parents=True, exist_ok=True)
+                        save_prompts_dict(
+                            prompts_dict=prompts,
+                            ref_affine=meta["affine"],
+                            ref_header=meta["header"],
+                            output_dir=prompts_path,
+                        )
 
-                    # Append a row for this label value, including metrics and inference time if available.
-                    rows.append(
+                    # Reusable scratch buffers for the per-label binary
+                    # masks, allocated once per sample and overwritten in
+                    # place (np.equal(..., out=...)) for each label rather
+                    # than allocating a fresh array per label.
+                    tmp_pred = np.zeros_like(prediction, dtype=bool)
+                    tmp_gt = np.zeros_like(target, dtype=bool)
+
+                    # Compute and record metrics separately for each label value
+                    # found in the ground-truth mask.
+                    for label in labels:
+                        np.equal(prediction, label, out=tmp_pred)
+                        np.equal(target, label, out=tmp_gt)
+                        metrics = compute_surface_dist_metrics(
+                            prediction=tmp_pred,
+                            target=tmp_gt,
+                            space_mm=meta["header"].get_zooms(),
+                        )
+
+                        write_row(
+                            EvaluationRow(
+                                model_run_name=model_run_name,
+                                dataset_name=dataset_name,
+                                model_name=model_name,
+                                sample_id=sample_id,
+                                sample_index=sample_index,
+                                label=label,
+                                status="ok",
+                                inference_seconds=inference_time_per_label[label] if inference_time_per_label else None,
+                                dice_score=metrics["dice"],
+                                hd95=metrics["hd95"],
+                                hd99=metrics["hd99"],
+                                avg_dist_gt_to_pred=metrics["avg_surface_dist_gt_to_pred"],
+                                avg_dist_pred_to_gt=metrics["avg_surface_dist_pred_to_gt"],
+                                sample_gt_path=str(meta["mask_path"]),
+                                sample_img_path=str(meta["image_path"]),
+                                sample_pred_path=str(prediction_path) if self.config.save_predictions and prediction is not None else None,
+                                sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts and prompts is not None else None,
+                                error_message=None,
+                            )
+                        )
+                        rows_written += 1
+
+                    processed_keys.add((dataset_name, model_name, sample_id))
+                    print(f"Model run \"{model_run_name}\": Completed sample {sample_id} for dataset {dataset_name} and model {model_name}.")
+
+                    # Clear the per-label scratch buffers now that we're
+                    # done with them for this sample.
+                    del tmp_pred, tmp_gt
+
+                except Exception as exc:  # noqa: BLE001
+                    # Record the failure for this specific sample and either
+                    # continue to the next sample or propagate, depending on
+                    # configuration.
+                    write_row(
                         EvaluationRow(
+                            model_run_name=model_run_name,
                             dataset_name=dataset_name,
                             model_name=model_name,
                             sample_id=sample_id,
                             sample_index=sample_index,
-                            label=label,
-                            status="ok",
-                            inference_seconds=inference_time_per_label[label] if inference_time_per_label else None,
-                            dice_score=metrics["dice"],
-                            hd95=metrics["hd95"],
-                            hd99=metrics["hd99"],
-                            avg_dist_gt_to_pred=metrics["avg_surface_dist_gt_to_pred"],
-                            avg_dist_pred_to_gt=metrics["avg_surface_dist_pred_to_gt"],
-                            sample_gt_path=str(sample["meta"]["mask_path"]),
+                            label=None,
+                            status="error",
+                            inference_seconds=None,
+                            dice_score=None,
+                            hd95=None,
+                            hd99=None,
+                            avg_dist_gt_to_pred=None,
+                            avg_dist_pred_to_gt=None,
                             sample_img_path=str(sample["meta"]["image_path"]),
+                            sample_gt_path=str(sample["meta"]["mask_path"]),
                             sample_pred_path=str(prediction_path) if self.config.save_predictions and prediction is not None else None,
                             sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts and prompts is not None else None,
-                            error_message=None,
+                            error_message=str(exc),
                         )
                     )
+                    rows_written += 1
+                    if not self.config.continue_on_error:
+                        raise
+                finally:
+                    # Explicitly release references to this sample's large
+                    # volumes (image, mask, prediction, prompts) rather than
+                    # waiting for the next iteration's reassignment to do it.
+                    # This also breaks any reference the `exc` traceback
+                    # above might otherwise hold onto this frame's locals.
+                    sample = None
+                    image = None
+                    target = None
+                    prediction = None
+                    prompts = None
+                    if sample_index % self.GC_EVERY_N_SAMPLES == 0:
+                        gc.collect()
 
-                del tmp_pred, tmp_gt  # Clear temporary masks at the end of processing for this sample to free memory.
+        finally:
+            # Final reset in case the loop body didn't reach the per-sample
+            # reset for the last sample (e.g. it raised before getting there).
+            predictor.reset_session()
 
-            except Exception as exc:  # noqa: BLE001
-
-                # Record the failure for this specific sample and either
-                # continue to the next sample or propagate, depending on
-                # configuration.
-                rows.append(
-                    EvaluationRow(
-                        dataset_name=dataset_name,
-                        model_name=model_name,
-                        sample_id=sample_id,
-                        sample_index=sample_index,
-                        label=None,
-                        status="error",
-                        inference_seconds=None,
-                        dice_score=None,
-                        hd95=None,
-                        hd99=None,
-                        avg_dist_gt_to_pred=None,
-                        avg_dist_pred_to_gt=None,
-                        sample_img_path=str(sample["meta"]["image_path"]),
-                        sample_gt_path=str(sample["meta"]["mask_path"]),
-                        sample_pred_path=str(prediction_path) if self.config.save_predictions and prediction is not None else None,
-                        sample_prompts_path=str(prompts_path) if self.config.save_generated_prompts and prompts is not None else None,
-                        error_message=str(exc),
-                    )
-                )
-                if not self.config.continue_on_error:
-                    raise exc
-            
-        # Final reset in case the loop body didn't reach the per-sample
-        # reset for the last sample (e.g. it raised before getting there).
-        predictor.reset_session()
+        return rows_written
 
     @staticmethod
     def _load_yaml_file(path: Path) -> dict[str, Any]:
@@ -449,7 +504,7 @@ class EvaluationRunner:
         """
         with path.expanduser().resolve().open("r", encoding="utf-8") as handle:
             return yaml.safe_load(handle)
-        
+
     @staticmethod
     def _save_yaml_file(path: Path, data: dict[str, Any]) -> None:
         """Saves a dictionary to a YAML file.
@@ -474,87 +529,152 @@ class EvaluationRunner:
             A list of unique non-zero integer label values found in the mask.
         """
         return [int(value) for value in np.unique(mask) if int(value) != 0]
-    
-    @classmethod
-    def _write_csv(cls, output_csv: Path, rows: list[EvaluationRow]) -> None:
-        """Writes evaluation rows to a CSV file.
-
-        Args:
-            output_csv: Path to the CSV file to write. Parent directories
-                are assumed to already exist.
-            rows: The list of EvaluationRow instances to write, one per
-                CSV row, in order.
-        """
-        # encoding="utf-8-sig" adds a UTF-8 BOM so Excel detects the file as
-        # UTF-8 and correctly displays accented characters. The "sep=,"
-        # directive on the first line tells Excel to use "," as the
-        # delimiter regardless of the user's regional settings, ensuring
-        # values with a "." decimal (e.g. 1.1245) are read correctly
-        # instead of being misinterpreted as 11245.
-        with output_csv.open("w", newline="", encoding="utf-8-sig") as handle:
-            handle.write("sep=,\n")
-            writer = csv.DictWriter(handle, fieldnames=cls.CSV_FIELDNAMES, delimiter=",")
-            writer.writeheader()
-            for row in rows:
-                writer.writerow(asdict(row))
-
-    @classmethod
-    def _load_existing_rows(cls, output_csv: Path) -> list[EvaluationRow]:
-        """Loads previously written rows from an existing results CSV.
-
-        Used to resume an interrupted evaluation run without losing rows
-        that were already computed and persisted in a prior invocation
-        (since ``_write_csv`` overwrites the file each time it's called).
-
-        Args:
-            output_csv: Path to the CSV file to load, if it exists.
-
-        Returns:
-            A list of EvaluationRow instances reconstructed from the CSV,
-            or an empty list if the file does not exist.
-        """
-        if not output_csv.exists():
-            return []
-
-        rows: list[EvaluationRow] = []
-        with output_csv.open("r", newline="", encoding="utf-8-sig") as handle:
-            # _write_csv prepends a "sep=," directive line (an Excel-only
-            # convention, not part of the CSV spec) so that double-clicking
-            # the file in Excel uses the correct delimiter regardless of
-            # locale. csv.DictReader has no knowledge of this convention and
-            # would otherwise treat "sep=," as the header row, so it must be
-            # skipped explicitly before handing the stream to DictReader.
-            first_line_pos = handle.tell()
-            first_line = handle.readline()
-            if not first_line.startswith("sep="):
-                handle.seek(first_line_pos)
-
-            for raw in csv.DictReader(handle, delimiter=","):
-                rows.append(
-                    EvaluationRow(
-                        dataset_name=raw["dataset_name"],
-                        model_name=raw["model_name"],
-                        sample_id=raw["sample_id"],
-                        sample_index=int(raw["sample_index"]),
-                        label=int(raw["label"]) if raw["label"] not in ("", None) else None,
-                        status=raw["status"],
-                        inference_seconds=cls._to_float(raw["inference_seconds"]),
-                        dice_score=cls._to_float(raw["dice_score"]),
-                        hd95=cls._to_float(raw["hd95"]),
-                        hd99=cls._to_float(raw["hd99"]),
-                        avg_dist_gt_to_pred=cls._to_float(raw["avg_dist_gt_to_pred"]),
-                        avg_dist_pred_to_gt=cls._to_float(raw["avg_dist_pred_to_gt"]),
-                        error_message=raw["error_message"] or None,
-                        sample_img_path=raw["sample_img_path"] or None,
-                        sample_gt_path=raw["sample_gt_path"] or None,
-                    )
-                )
-        return rows
 
     @staticmethod
-    def _to_float(value: str | None) -> float | None:
-        """Converts a CSV string field back to a float, treating empty/None as None."""
-        return float(value) if value not in ("", None) else None
+    def _skip_sep_line(handle) -> None:
+        """Skips the leading "sep=," Excel directive line if present.
+
+        ``_csv_row_writer`` prepends a "sep=," directive line (an
+        Excel-only convention, not part of the CSV spec) so that
+        double-clicking the file in Excel uses the correct delimiter
+        regardless of locale. ``csv.DictReader`` has no knowledge of this
+        convention and would otherwise treat "sep=," as the header row, so
+        it must be skipped explicitly before handing the stream to
+        DictReader.
+
+        Args:
+            handle: An open, readable file handle positioned at the start
+                of the file. Left positioned right after the directive line
+                if one was present, or rewound back to the start otherwise.
+        """
+        pos = handle.tell()
+        line = handle.readline()
+        if not line.startswith("sep="):
+            handle.seek(pos)
+
+    @classmethod
+    def _count_csv_rows(cls, output_csv: Path) -> int:
+        """Counts data rows in an existing results CSV without materializing them.
+
+        Args:
+            output_csv: Path to the CSV file to count, if it exists.
+
+        Returns:
+            The number of data rows (excluding the sep directive and
+            header), or 0 if the file does not exist.
+        """
+        if not output_csv.exists():
+            return 0
+        with output_csv.open("r", newline="", encoding="utf-8-sig") as handle:
+            cls._skip_sep_line(handle)
+            return sum(1 for _ in csv.DictReader(handle, delimiter=","))
+
+    @classmethod
+    def _prepare_resume_state(cls, output_csv: Path) -> set[SampleKey]:
+        """Recovers resume state from a prior run without loading it fully into memory.
+
+        Streams through an existing results CSV (if any) to collect the set
+        of (dataset_name, model_name, sample_id) keys that completed
+        successfully ("ok") in a prior, possibly interrupted run. Only that
+        small set of string tuples is kept in memory — not the full
+        ``EvaluationRow`` data for every prior row.
+
+        If the last row on disk belongs to a sample that ended in "error",
+        all rows for that sample are dropped so it can be retried cleanly.
+        This is done by streaming the old file into a temp file (skipping
+        the failed sample's rows) and atomically replacing the original,
+        so at most one row is held in memory at a time even during the
+        rewrite.
+
+        Args:
+            output_csv: Path to a previous run's results CSV, if any.
+
+        Returns:
+            The set of (dataset_name, model_name, sample_id) keys that
+            completed successfully in a prior run and can be skipped.
+        """
+        if not output_csv.exists():
+            return set()
+
+        processed_keys: set[SampleKey] = set()
+        last_key: SampleKey | None = None
+        last_status: str | None = None
+
+        with output_csv.open("r", newline="", encoding="utf-8-sig") as handle:
+            cls._skip_sep_line(handle)
+            for raw in csv.DictReader(handle, delimiter=","):
+                key = (raw["dataset_name"], raw["model_name"], raw["sample_id"])
+                if raw["status"] == "ok":
+                    processed_keys.add(key)
+                last_key, last_status = key, raw["status"]
+
+        if last_status != "error" or last_key is None:
+            return processed_keys
+
+        print(f"Model run \"{last_key[1]}\": Last row in {output_csv} was an error for sample {last_key[2]} in dataset {last_key[0]}; dropping the row for that sample so it can be retried cleanly.")
+        processed_keys.discard(last_key)
+
+        tmp_path = output_csv.with_suffix(output_csv.suffix + ".tmp")
+        with (
+            output_csv.open("r", newline="", encoding="utf-8-sig") as src,
+            tmp_path.open("w", newline="", encoding="utf-8-sig") as dst,
+        ):
+            cls._skip_sep_line(src)
+            dst.write("sep=,\n")
+            writer = csv.DictWriter(dst, fieldnames=cls.CSV_FIELDNAMES, delimiter=",")
+            writer.writeheader()
+            for raw in csv.DictReader(src, delimiter=","):
+                key = (raw["dataset_name"], raw["model_name"], raw["sample_id"])
+                if key == last_key:
+                    continue
+                writer.writerow(raw)
+        tmp_path.replace(output_csv)
+
+        return processed_keys
+
+    @contextmanager
+    def _csv_row_writer(
+        self, output_csv: Path, write_header: bool
+    ) -> Iterator[Callable[[EvaluationRow], None]]:
+        """Opens the results CSV for streaming, append-only writes.
+
+        Rows are written and flushed to disk as soon as they're produced,
+        instead of being accumulated in memory and rewritten in bulk on
+        every checkpoint. This keeps peak memory bounded by the current
+        sample rather than growing with the total number of results
+        produced over the run, and means a crash never loses more than the
+        row currently in flight.
+
+        Args:
+            output_csv: Path to the CSV file to append to (or create).
+            write_header: Whether to write the "sep=," directive and column
+                header before any rows (True for a fresh file).
+
+        Yields:
+            A callable that appends a single EvaluationRow to the file and
+            flushes it to disk immediately.
+        """
+        output_csv.parent.mkdir(parents=True, exist_ok=True)
+        mode = "w" if write_header else "a"
+        handle = output_csv.open(mode, newline="", encoding="utf-8-sig")
+        try:
+            writer = csv.DictWriter(handle, fieldnames=self.CSV_FIELDNAMES, delimiter=",")
+            if write_header:
+                # "sep=," tells Excel to use "," as the delimiter regardless
+                # of the user's regional settings, so values with a "."
+                # decimal (e.g. 1.1245) aren't misread as 11245. utf-8-sig
+                # adds a BOM so Excel detects UTF-8 and shows accented
+                # characters correctly.
+                handle.write("sep=,\n")
+                writer.writeheader()
+
+            def write_row(row: EvaluationRow) -> None:
+                writer.writerow(asdict(row))
+                handle.flush()
+
+            yield write_row
+        finally:
+            handle.close()
 
     @staticmethod
     def _safe_name(value: str) -> str:
