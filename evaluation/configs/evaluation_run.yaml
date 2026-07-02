@@ -28,6 +28,6 @@ model_runs:
 
 
 output_path: null
-save_predictions: true
-save_generated_prompts: true
+save_predictions: false
+save_generated_prompts: false
 continue_on_error: false
