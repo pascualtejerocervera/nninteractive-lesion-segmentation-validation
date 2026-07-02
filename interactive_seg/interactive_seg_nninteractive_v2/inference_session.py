@@ -90,8 +90,7 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
             raise ValueError("No valid labels found in prompts_dict. Please provide at least one non-zero label.")
 
         # Extract unique labels from the prompts_dict and filter them based on the provided labels parameter
-        extracted = extract_labels_from_prompts(prompts_dict)
-        labels_extracted = sorted(set(labels) & set(extracted)) if labels is not None else extracted
+        labels_extracted = extract_labels_from_prompts(prompts_dict) if labels is None else labels
 
         # Create a temporary mask for label extraction if diameter or spline prompts are present
         keys_scribble = tuple(key for key in self.valid_prompt_keys if "scribble" in key)
@@ -131,6 +130,8 @@ class NNInteractiveV2InferenceSession(InteractiveSegmentationModel):
                 elif "scribble" in prompt_name:
                     if isinstance(prompt_content, np.ndarray):
                         np.equal(prompt_content, label, out=label_mask)
+                        if not np.any(label_mask):
+                            raise ValueError(f"No scribble found for label {label} in prompt '{prompt_name}'.")
                         self.model.add_interaction(scribble_pos=label_mask)
                     elif isinstance(prompt_content, dict) and label in prompt_content:
                         self.model.add_interaction(scribble_pos=prompt_content[label])
