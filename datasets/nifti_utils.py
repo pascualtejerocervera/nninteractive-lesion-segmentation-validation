@@ -62,7 +62,7 @@ def read_nifti(path: Path, extract_unique_labels: bool = False):
     Returns:
         affine, header, shape, (optional) unique_labels
     """
-    img = nib.load(str(path), mmap=False)
+    img = nib.load(str(path))  # Load the NIfTI image using nibabel
 
     affine = img.affine
     header = img.header
