@@ -326,9 +326,9 @@ class EvaluationRunner:
                     image = sample["image"]
                     target = sample["mask"]
                     labels = self._labels(target)  # Unique non-zero label values in the ground truth mask
-                    # if not labels:
-                    #     print(f"Sample {sample_id} has no foreground labels in the ground truth mask; skipping metric computation.")
-                    #     continue
+                    if not labels:
+                        print(f"Sample {sample_id} has no foreground labels in the ground truth mask; skipping metric computation.")
+                        continue
 
                     # Generate interactive segmentation prompts (e.g. clicks,
                     # bounding boxes) derived from the ground-truth mask.
