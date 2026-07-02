@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import nibabel as nib
-
 @dataclass(frozen=True, slots=True)
 class NiftiPair:
     """Container for a paired image-mask sample.
@@ -11,10 +11,12 @@ class NiftiPair:
         case_id: Unique identifier for the case.
         image_path: Path to the image volume.
         mask_path: Path to the segmentation mask.
+        unique_labels: List of unique non-zero label values in the mask.
     """
     case_id: str
     image_path: Path
     mask_path: Path
+    unique_labels: list[int] 
 
 def is_nifti_path(path: Path) -> bool:
     """Checks whether a file path corresponds to a NIfTI image.
@@ -49,15 +51,28 @@ def strip_nifti_extension(path: Path) -> Path:
 
     return path
 
-def read_nifti_meta(path):
+def read_nifti(path: Path, extract_unique_labels: bool = False):
     """
-    Reads the affine and header metadata from a NIfTI file without loading the full image data
-    
+    Reads NIfTI metadata and optionally extracts unique non-zero labels.
+
     Args:
-        path: Path to the NIfTI file.
+        path: Path to NIfTI file.
+        extract_unique_labels: If True, also computes unique non-zero labels.
 
     Returns:
-        Tuple of (affine, header, shape).
+        affine, header, shape, (optional) unique_labels
     """
-    img = nib.load(str(path), mmap=False)  # does NOT load full array
-    return img.affine, img.header, img.shape
+    img = nib.load(str(path), mmap=False)
+
+    affine = img.affine
+    header = img.header
+    shape = img.shape
+
+    if not extract_unique_labels:
+        return affine, header, shape
+
+    data = np.asanyarray(img.dataobj, dtype=np.uint8)
+
+    # Compute unique non-zero labels in the mask
+    labels = [int(x) for x in np.unique(data) if int(x) != 0]
+    return affine, header, shape, labels

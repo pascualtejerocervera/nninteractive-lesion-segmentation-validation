@@ -57,7 +57,7 @@ def generate_nninteractive_prompts(
     )
 
     # Extract unique labels from the mask, excluding the background label (0)
-    labels_unique = tuple(int(label) for label in np.unique(mask) if int(label) != 0)
+    labels_unique = config.labels if config.labels is not None else [int(x) for x in np.unique(mask) if int(x) != 0]
     if len(labels_unique) == 0:
         raise ValueError("The mask does not contain any positive labels to generate prompts from.")
     

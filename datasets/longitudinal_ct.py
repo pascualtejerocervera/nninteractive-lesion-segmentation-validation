@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from datasets.medical_segmentation import PairedNiftiMedicalSegmentationDataset
-from datasets.nifti_utils import NiftiPair, is_nifti_path, read_nifti_meta
+from datasets.nifti_utils import NiftiPair, is_nifti_path, read_nifti
 from datasets.registry import register_dataset
 
 
@@ -149,14 +149,19 @@ class LongitudinalCTDataset(PairedNiftiMedicalSegmentationDataset):
         # Build dataset
         # ---------------------------------------------------------
         samples: list[NiftiPair] = []
+        n_keys = len(keys)
 
-        for case_id, phase, region in keys:
+        for idx, (case_id, phase, region) in enumerate(keys, start=1):
             image_path = image_files[(case_id, phase, region)]
             mask_path = mask_files[(case_id, phase, region)]
 
             # Load for validation (keep your strict checks)
-            affine_img, header_img, shape_img = read_nifti_meta(image_path)
-            affine_mask, header_mask, shape_mask = read_nifti_meta(mask_path)
+            affine_img, header_img, shape_img = read_nifti(image_path)
+            affine_mask, header_mask, shape_mask, unique_labels = read_nifti(mask_path, extract_unique_labels=True)
+
+            if len(unique_labels) == 0:
+                print(f"Not added sample {idx}/{n_keys}: {case_id}_{phase}_{region} because mask has no labels.")
+                continue  # Skip masks with no labels
 
             if shape_img != shape_mask:
                 raise ValueError(
@@ -175,7 +180,9 @@ class LongitudinalCTDataset(PairedNiftiMedicalSegmentationDataset):
                     case_id=f"{case_id}_{phase}_{region}",
                     image_path=image_path,
                     mask_path=mask_path,
+                    unique_labels=unique_labels
                 )
             )
+            print(f"Added sample {idx}/{n_keys}: {case_id}_{phase}_{region} with labels {unique_labels}")
 
         return samples

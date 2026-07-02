@@ -251,6 +251,12 @@ class NNInteractivePromptGenerationConfigBase(BaseModel):
         ge=0,
         description="Random seed for reproducibility; None = non-deterministic"
     )
+    
+    # Labels to generate prompts for. If None, prompts will be generated for all labels in the mask.
+    labels: list[int] | tuple[int, ...] | None = Field(
+        default=None,
+        description="List of label IDs to generate prompts for. If None, prompts will be generated for all labels present in the mask."
+    )
 
     # Prompt generation settings
     prompt_generation_config: NNInteractivePromptGenerationConfig = Field(
@@ -263,3 +269,17 @@ class NNInteractivePromptGenerationConfigBase(BaseModel):
         default_factory=NNInteractiveCropROIConfig,
         description="Configuration for generating crop bounding boxes around lesions"
     )
+
+    @model_validator(mode="after")
+    def validate_labels(self) -> "NNInteractivePromptGenerationConfigBase":
+        """
+        Validate that the labels are a list or tuple of unique integers, if provided.
+        """
+        if self.labels is not None:
+            if not isinstance(self.labels, (list, tuple)):
+                raise ValueError("labels must be a list or tuple of integers.")
+            if not all(isinstance(label, int) for label in self.labels):
+                raise ValueError("All labels must be integers.")
+            # Ensure uniqueness and sort the labels
+            self.labels = sorted(set(self.labels))
+        return self

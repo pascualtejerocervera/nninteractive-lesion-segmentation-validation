@@ -54,12 +54,10 @@ def save_prompt_masks(prompts_dict, ref_affine, ref_header, output_dir):
     """
     for prompt_type, content in prompts_dict.items():
         if prompt_type in ("scribble_diameter_ann", "scribble_spline") and isinstance(content, np.ndarray):
-            print(f"Unique values in {prompt_type} mask: {np.unique(content)}")  # Debugging statement to check the unique values in the mask
             file_path = output_dir / f"{prompt_type}.nii.gz"
             save_nifti_image(content, ref_affine, ref_header, file_path)  # Use the reference affine for consistency
         elif prompt_type in ("scribble_diameter_ann", "scribble_spline") and isinstance(content, dict):
             for label, mask in content.items():
-                print(f"Unique values in {prompt_type} mask for label {label}: {np.unique(mask)}")  # Debugging statement to check the unique values in the mask
                 file_path = output_dir / f"{prompt_type}_label_{label}.nii.gz"
                 save_nifti_image(mask, ref_affine, ref_header, file_path)  # Use the reference affine for consistency
 

@@ -83,6 +83,7 @@ class PairedNiftiMedicalSegmentationDataset(BaseMedicalSegmentationDataset):
             "case_id": sample.case_id,
             "image_path": str(sample.image_path),
             "mask_path": str(sample.mask_path),
+            "labels": sample.unique_labels,
             "modality": self.modality,
             "dimension": self.dimension,
             "shape": img_np.shape,

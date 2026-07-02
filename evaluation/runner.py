@@ -302,6 +302,7 @@ class EvaluationRunner:
                 # Initialize variables for the large per-sample objects up
                 # front (and to None) so the `finally` cleanup below is safe
                 # to run no matter how far this iteration got before failing.
+                unique_labels = None
                 image = None
                 target = None
                 prediction = None
@@ -312,12 +313,16 @@ class EvaluationRunner:
 
                 try:
                     # Extract the image and ground truth mask from the sample
-                    image = sample["image"]
-                    target = sample["mask"]
-                    labels = self._labels(target)  # Unique non-zero label values in the ground truth mask
-                    if not labels:
+                    unique_labels = meta.get("labels", [])
+                    if len(unique_labels) == 0:
                         print(f"Sample {sample_index}/{n_samples}: Sample {sample_id} has no foreground labels in the ground truth mask; skipping evaluation for this sample.")
                         continue
+
+                    image = sample["image"]
+                    target = sample["mask"]
+
+                    # Add labels to the prompt generation to avoid np.unique RAM spikes on large masks.
+                    prompt_config["labels"] = unique_labels
 
                     # Generate interactive segmentation prompts (e.g. clicks,
                     # bounding boxes) derived from the ground-truth mask.
@@ -331,7 +336,7 @@ class EvaluationRunner:
                     predictor.set_image(image)
 
                     # Run the model using the generated prompts for all the labels in the ground truth mask, and measure inference time per label if available.
-                    predictor.run(prompts_dict=prompts, labels=None)
+                    predictor.run(prompts_dict=prompts, labels=unique_labels)
                     prediction = predictor.output
                     inference_time_per_label = predictor.inference_time_per_label.copy() if predictor.inference_time_per_label else None
 
@@ -391,7 +396,7 @@ class EvaluationRunner:
 
                     # Compute and record metrics separately for each label value
                     # found in the ground-truth mask.
-                    for label in labels:
+                    for label in unique_labels:
                         np.equal(prediction, label, out=tmp_pred)
                         np.equal(target, label, out=tmp_gt)
                         metrics = compute_surface_dist_metrics(
@@ -506,19 +511,6 @@ class EvaluationRunner:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as handle:
             yaml.safe_dump(data, handle, sort_keys=False)
-
-    @staticmethod
-    def _labels(mask: np.ndarray) -> list[int]:
-        """Extracts the non-background label values present in a mask.
-
-        Args:
-            mask: A numpy array containing integer label values, where 0
-                is treated as background.
-
-        Returns:
-            A list of unique non-zero integer label values found in the mask.
-        """
-        return [int(value) for value in np.unique(mask) if int(value) != 0]
 
     @staticmethod
     def _skip_sep_line(handle) -> None:

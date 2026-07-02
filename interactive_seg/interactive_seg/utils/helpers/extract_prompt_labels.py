@@ -34,7 +34,8 @@ def extract_labels_from_prompts(
         elif "scribble_diameter_ann" in prompt_name or "scribble_spline" in prompt_name:
             if isinstance(prompt_content, np.ndarray):
                 # extract unique non-zero labels from array-like input
-                labels_detected.update(int(x) for x in np.unique(prompt_content) if x != 0)
+                labels_detected.update(int(x) for x in np.unique(prompt_content) if int(x) != 0)
+                # labels_detected.update(np.nonzero(np.bincount(prompt_content.ravel()))[0][1:].tolist())
             elif isinstance(prompt_content, Mapping):
                 # If the content is a dictionary, extract labels from the keys
                 labels_detected.update(prompt_content.keys())

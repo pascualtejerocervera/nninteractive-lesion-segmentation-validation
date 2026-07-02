@@ -41,5 +41,5 @@ def prepare_nninteractive_config(
     # If the model version is v1 and ROI cropping is enabled, raise an error since ROI cropping is not supported in v1
     if isinstance(model_config, NNInteractiveV1ModelConfig) and config.crop_roi_config.enable:
         raise ValueError("ROI cropping is not supported in NNInteractiveV1ModelConfig. Please set crop_roi_config.enable to False for model version v1.")
-    
+        
     return config, model_config
